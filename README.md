@@ -1,4 +1,4 @@
-# Combat Chronicle — v0.2.0 Development Build
+# Combat Chronicle — v0.2.1 Development Build
 
 **Foundry VTT 13.351 • Pathfinder 1e system 11.11**
 
@@ -6,9 +6,17 @@ An installable PF1e-specific combat analytics module with an MMO-inspired live m
 
 > **Development release.** This package is installable and includes working module code and passing automated tests, but it has **not** been executed inside a live Foundry v13.351 + PF1e 11.11 + Nevela + Armor Soak world. Do **not** use it as the sole record of your campaign until you complete the test-world checklist. The full uploaded specification is included as `SPECIFICATION.md` in the source ZIP, and substantial advanced features remain incomplete.
 
-## Installation
+## Install from GitHub Releases
 
-1. Download `Combat-Chronicle-v0.2.0.zip` and extract its single `combat-chronicle` directory.
+Use this Foundry VTT Manifest URL after the release workflow succeeds:
+
+https://github.com/Antpoizen/PF1E-Combat-Chronicle/releases/latest/download/module.json
+
+Pushing source to the main branch automatically builds and publishes a versioned release with `module.json` and `combat-chronicle.zip`.
+
+## Manual local installation
+
+1. Download `Combat-Chronicle-v0.2.1.zip` and extract its single `combat-chronicle` directory.
 2. Place that directory into your Foundry `Data/modules/` directory.
 3. Restart Foundry and open a **backup/test world** using PF1e 11.11.
 4. Enable **Combat Chronicle** in Manage Modules. Enable Armor Soak Pool 1.1.1 and Nevela's Automation Suite in your test world.

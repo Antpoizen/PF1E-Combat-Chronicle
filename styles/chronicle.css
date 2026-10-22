@@ -32,6 +32,10 @@
 .combat-chronicle .cc-timeline small{color:var(--cc-muted);margin-right:9px}.combat-chronicle .cc-timeline em{color:#b6bcbd;font-size:10px}
 .combat-chronicle .cc-voided{opacity:.45;text-decoration:line-through}
 .combat-chronicle .cc-correction{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:8px 0;border-bottom:1px solid var(--cc-border)}
+/* Corrections: source attribution requiring GM review is tinted red. */
+.combat-chronicle .cc-correction.cc-correction-needs-attribution{background:rgba(167,41,52,.24);border:1px solid rgba(226,88,98,.64);border-left:4px solid #f16c74;border-radius:7px;padding:10px 9px;margin:6px 0}
+.combat-chronicle .cc-correction.cc-correction-needs-attribution:hover{background:rgba(167,41,52,.32)}
+.combat-chronicle .cc-attribution-flag{flex:0 0 auto!important;white-space:nowrap;color:#ffe2e5;background:rgba(118,27,38,.52);border:1px solid rgba(238,114,128,.6);border-radius:4px;padding:3px 7px;font-size:11px;font-weight:700}
 .combat-chronicle .cc-correction span{flex:1}.combat-chronicle .cc-manual{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
 .combat-chronicle .cc-manual label{display:flex;flex-direction:column;gap:4px}.combat-chronicle .cc-award{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--cc-border)}
 .combat-chronicle .cc-award span{flex:1}.combat-chronicle .cc-report-options{display:flex;gap:12px;flex-wrap:wrap;margin:13px 0}

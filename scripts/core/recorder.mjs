@@ -1,0 +1,155 @@
+import {MOD,authority,setting,combatStarted,participantsOf,selectTarget,now,uid,log,warn} from './utils.mjs';
+import {makeEvent} from '../analytics/model.mjs';
+import {readHealth,changesBetween} from '../adapters/health.mjs';
+import {installSoakHooks} from '../adapters/soak.mjs';
+import {playerProjection} from '../services/privacy.mjs';
+import {createRecord,findByCombat,loadRecord,appendEvents,saveMetadata,listIndexes} from './store.mjs';
+export class ChronicleRecorder {
+ constructor(){this.records=new Map();this.snapshots=new Map();this.conditions=new Map();this.queue=Promise.resolve();this.latest=null;this.recentMessages=[];this.pendingOrigins=new Map();this.pendingSoak=new Map();this.onRefresh=()=>{};this.lastPublished=null;this.lastCombatUI=null;}
+ enqueue(fn){const promise=this.queue.then(fn);this.queue=promise.catch(error=>{console.error('Combat Chronicle | operation failed',error)});return promise;}
+ combatForActor(actor){if(!actor)return null;const matches=Array.from(game.combats||[]).filter(c=>combatStarted(c)&&selectTarget(c,actor));return matches.length===1?matches[0]:null;}
+ snapshotKey(combat,actor){return `${combat.id}:${actor.uuid}`;}
+ seed(combat){for(const c of combat.combatants||[]){const a=c.actor;if(!a)continue;const key=this.snapshotKey(combat,a);if(!this.snapshots.has(key))this.snapshots.set(key,readHealth(a));this.conditions.set(key,new Set(a.statuses||[]));}}
+ async ensure(combat){if(!authority()||!combatStarted(combat)||!setting('enabled',true))return null;
+ let record=this.records.get(combat.id);if(record)return record;
+ record=await findByCombat(combat.id)||await createRecord(combat,participantsOf(combat));
+ this.records.set(combat.id,record);this.seed(combat);this.broadcast(record);return record;
+ }
+ broadcast(record){if(!authority()||!record)return;
+ const projection=playerProjection(record,{includeTemporary:setting('includeTemporary',false),groupSummons:setting('groupSummons',true)});
+ this.latest=projection;if(setting('allowPlayers',true))game.socket.emit(`module.${MOD}`,{kind:'state',projection});this.onRefresh();
+ }
+ async add(combat,events=[]){if(!authority()||!combatStarted(combat)||!setting('enabled',true))return;
+ const record=await this.ensure(combat);if(!record)return;
+ const p=participantsOf(combat);for(const [id,v] of Object.entries(p))record.participants[id]??=v;
+ const entries=events.map(e=>makeEvent({round:combat.round,turn:combat.turn,...e}));
+ record.round=combat.round;record.turn=combat.turn;
+ const count=await appendEvents(record,entries);if(count){await saveMetadata(record);this.broadcast(record)}
+ }
+ async closeCombat(combat){if(!authority())return;
+ let record=this.records.get(combat.id)||await findByCombat(combat.id);if(!record)return;
+ record.status='completed';record.end=now();record.round=combat.round;await saveMetadata(record);this.records.delete(combat.id);this.broadcast(record);
+ }
+ async resume(){if(!authority())return;for(const combat of game.combats||[])if(combatStarted(combat))await this.ensure(combat);}
+ resolveEvidence(options,actor,combat){
+  // Only explicit per-update provenance can automatically establish a source.
+  const cc=options?.combatChronicle||options?.chronicle||{};
+  const sourceId=cc.sourceId||null;
+  const source=sourceId?combat.combatants.get(sourceId):null;
+  if(source)return {sourceId:source.id,sourceName:source.name,confidence:'confirmed',itemName:cc.itemName||null,messageId:cc.messageId||null};
+  const msg=typeof options?.message==='string'?game.messages?.get(options.message):options?.message;
+  const speaker=msg?.speaker;
+  if(speaker?.actor){const matches=Array.from(combat.combatants).filter(c=>c.actorId===speaker.actor&&(!speaker.token||speaker.token===c.tokenId));
+   if(matches.length===1)return {sourceId:matches[0].id,sourceName:matches[0].name,confidence:'confirmed',itemName:null,messageId:msg.id||null};}
+  const uuid=cc.sourceActorUuid||cc.originActorUuid||null;
+  if(uuid){const matches=Array.from(combat.combatants).filter(c=>c.actor?.uuid===uuid);
+   if(matches.length===1)return {sourceId:matches[0].id,sourceName:matches[0].name,confidence:'confirmed',itemName:cc.itemName||null,messageId:cc.messageId||null};}
+  const contextual=this.pendingOrigins.get(actor.uuid);
+  if(contextual && Date.now()-contextual.at<2000)return {...contextual,confidence:'strongly-correlated'};
+  return {sourceId:null,sourceName:'Unattributed',confidence:'unattributed',itemName:null,messageId:null};
+ }
+ handleHealth(actor,changes,options={}){
+  const combat=this.combatForActor(actor);if(!combat)return;
+  const key=this.snapshotKey(combat,actor),before=this.snapshots.get(key),after=readHealth(actor);
+  this.snapshots.set(key,after);if(!before){log('Missing resource baseline',key);return}
+  if(Number.isFinite(before.soak)&&Number.isFinite(after.soak)&&before.soak!==after.soak){
+   const id=`soakdelta:${combat.id}:${actor.uuid}:${before.soak}:${after.soak}:${combat.round}:${combat.turn}`;
+   if(!this.pendingSoak.has(id)){
+    const delta=after.soak-before.soak;
+    const timeout=setTimeout(()=>{
+      this.pendingSoak.delete(id);
+      const target=selectTarget(combat,actor);if(!target)return;
+      const source=this.resolveEvidence(options,actor,combat);
+      this.enqueue(()=>this.add(combat,[{
+       type:delta<0?'soak':'refill',resource:'soak',amount:Math.abs(delta),delta,
+       targetId:target.id,targetName:target.name,...source,confidence:delta<0?source.confidence:'confirmed',
+       eventKey:id,evidence:{integration:'soak-flag-fallback',old:before.soak,new:after.soak}
+      }]));
+    },125);
+    this.pendingSoak.set(id,timeout);
+   }
+  }
+  const effects=changesBetween(before,after);
+  const previousConditions=this.conditions.get(key)||new Set();const currentConditions=new Set(actor.statuses||[]);
+  this.conditions.set(key,currentConditions);
+  for(const c of currentConditions)if(!previousConditions.has(c))effects.push({type:'condition',resource:String(c),amount:1,applied:true});
+  for(const c of previousConditions)if(!currentConditions.has(c))effects.push({type:'condition',resource:String(c),amount:0,applied:false});
+  if(!effects.length)return;
+  const target=selectTarget(combat,actor),source=this.resolveEvidence(options,actor,combat);
+  if(!target)return;
+  const batchId=uid();const entries=effects.map((change,i)=>({...change,...source,targetId:target.id,targetName:target.name,
+   actionId:options?.combatChronicle?.actionId||batchId,
+   eventKey:options?.combatChronicle?.actionId?`health:${options.combatChronicle.actionId}:${target.id}:${change.resource}:${i}`:null,
+   evidence:{path:'actor-document',before:change.before,after:change.after,origin:'PF1e/Nevela actor update'}}));
+  // Changes are direct observations of actual resource deltas; source is left unattributed if no explicit provenance.
+  this.enqueue(()=>this.add(combat,entries));
+ }
+ trackApplyContext(actor,options){
+  if(!authority()||!actor||!options?.message)return;
+  const combat=this.combatForActor(actor);if(!combat)return;
+  const msg=typeof options.message==='string'?game.messages?.get(options.message):options.message;
+  const speaker=msg?.speaker;if(!speaker?.actor)return;
+  const matches=Array.from(combat.combatants).filter(c=>c.actorId===speaker.actor&&(!speaker.token||c.tokenId===speaker.token));
+  if(matches.length!==1)return;
+  this.pendingOrigins.set(actor.uuid,{at:Date.now(),sourceId:matches[0].id,sourceName:matches[0].name,
+    itemName:null,messageId:msg.id||null});
+ }
+ handleSoak(actor,event){const combat=this.combatForActor(actor);if(!combat||!authority())return;
+  const target=selectTarget(combat,actor),source=this.resolveEvidence({},actor,combat);if(!target)return;
+  const old=event.evidence?.old,latest=event.evidence?.new;
+  const key=(Number.isFinite(old)&&Number.isFinite(latest))?`soakdelta:${combat.id}:${actor.uuid}:${old}:${latest}:${combat.round}:${combat.turn}`:null;
+  if(key&&this.pendingSoak.has(key)){clearTimeout(this.pendingSoak.get(key));this.pendingSoak.delete(key)}
+  this.enqueue(()=>this.add(combat,[{...event,targetId:target.id,targetName:target.name,...source,eventKey:key}]));
+ }
+ async updateCombat(combat,changed){if(!authority())return;
+  if(combatStarted(combat)){
+   await this.ensure(combat);this.seed(combat);
+   if(Object.hasOwn(changed,'round')||Object.hasOwn(changed,'turn'))await this.add(combat,[{type:'turn',confidence:'confirmed',sourceName:'System',eventKey:`turn:${combat.id}:${combat.round}:${combat.turn}`}]);
+  }else if(this.records.has(combat.id))await this.closeCombat(combat);
+ }
+ observeChat(message){if(!authority()||!message.rolls?.length)return;
+  const matches=Array.from(game.combats||[]).filter(c=>combatStarted(c)&&Array.from(c.combatants).some(p=>p.actorId===message.speaker?.actor));
+  if(matches.length!==1)return;const combat=matches[0];const speaker=Array.from(combat.combatants).filter(c=>c.actorId===message.speaker.actor&&(!message.speaker.token||c.tokenId===message.speaker.token));
+  if(speaker.length!==1)return;
+  const natural=[];for(const roll of message.rolls){for(const term of roll.terms||[])if(Array.isArray(term.results)&&Number(term.faces)===20)for(const r of term.results)if(Number.isFinite(r.result))natural.push(r.result)}
+  const hidden=!!(message.blind||message.whisper?.length);const src=speaker[0];
+  this.enqueue(()=>this.add(combat,[{type:'roll',sourceId:src.id,sourceName:src.name,messageId:message.id,
+    natural:natural.length===1?natural[0]:null,evidence:{rollTotals:message.rolls.map(r=>r.total),naturalD20:natural},visibility:hidden?'private':'gm',confidence:'confirmed',eventKey:`roll:${message.id}`} ]));
+ }
+ async modify(recordId,mutation){if(!authority())throw Error('Only authoritative GM can edit records');
+  const record=await loadRecord(recordId);if(!record)throw Error('Record unavailable');
+  const event=mutation.event?makeEvent(mutation.event):null;
+  if(event)await appendEvents(record,[event]);
+  if(mutation.participant){const {id,...patch}=mutation.participant;if(record.participants[id])Object.assign(record.participants[id],patch)}
+  if(mutation.award){if(!record.awards.some(a=>a.title===mutation.award.title&&a.combatantId===mutation.award.combatantId))record.awards.push({...mutation.award,approved:true})}
+  if(mutation.report)record.report={...record.report,...mutation.report};
+  if(mutation.status)record.status=mutation.status;
+  await saveMetadata(record);if(this.records.has(record.combatId))this.records.set(record.combatId,record);this.broadcast(record);return record;
+ }
+ async load(id){return loadRecord(id)}
+ async indices(){return listIndexes()}
+ install(){
+  Hooks.on('createCombat',combat=>{if(combatStarted(combat))this.enqueue(()=>this.ensure(combat))});
+  Hooks.on('updateCombat',(combat,changed)=>{this.onCombatStartedUI(combat);if(authority())this.enqueue(()=>this.updateCombat(combat,changed))});
+  Hooks.on('deleteCombat',combat=>{if(authority())this.enqueue(()=>this.closeCombat(combat))});
+  Hooks.on('createCombatant',doc=>{if(authority()&&combatStarted(doc.parent))this.enqueue(async()=>{const r=await this.ensure(doc.parent);r.participants[doc.id]=participantsOf(doc.parent)[doc.id];this.seed(doc.parent);await saveMetadata(r);this.broadcast(r)})});
+  Hooks.on('preUpdateActor',(actor,changed,options)=>{if(!authority())return;const c=this.combatForActor(actor);if(c){options.combatChroniclePreHealth=readHealth(actor)}});
+  Hooks.on('updateActor',(actor,changed,options)=>{if(authority())this.handleHealth(actor,changed,options)});
+  Hooks.on('pf1ApplyDamage',(actor,options)=>this.trackApplyContext(actor,options));
+  installSoakHooks((actor,event)=>this.handleSoak(actor,event));
+  Hooks.on('createChatMessage',m=>this.observeChat(m));
+  game.socket.on(`module.${MOD}`,message=>{
+   if(message.kind==='state'&&!game.user.isGM&&setting('allowPlayers',true)){this.latest=message.projection;this.onRefresh();}
+   if(message.kind==='revoke'&&!game.user.isGM){this.latest=null;this.onRefresh();}
+   if(message.kind==='request'&&authority()){
+    const active=game.combats?.active;const record=active&&this.records.get(active.id);
+    if(record)this.broadcast(record);
+   }
+  });
+ }
+ onCombatStartedUI(combat){if(!combatStarted(combat)||!setting('autoOpen',true)||(!game.user.isGM&&!setting('allowPlayers',true)))return;
+  const already=setting('lastCombatOpened','');if(already===combat.id)return;
+  game.settings.set(MOD,'lastCombatOpened',combat.id).catch(()=>{});
+  globalThis.game?.combatChronicle?.openMeter?.();
+ }
+}

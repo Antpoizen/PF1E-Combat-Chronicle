@@ -1,0 +1,13 @@
+{
+  "id": "combat-chronicle",
+  "title": "Combat Chronicle",
+  "description": "PF1e combat archive, analytics, Wounds/Vigor/HP/Soak meter, and GM-reviewed reporting.",
+  "version": "0.2.0",
+  "authors": [{"name":"Combat Chronicle"}],
+  "compatibility": {"minimum":"13", "verified":"13.351", "maximum":"13"},
+  "relationships": {"systems":[{"id":"pf1","type":"system","compatibility":{"minimum":"11.11"}}]},
+  "esmodules": ["scripts/main.mjs"],
+  "styles": ["styles/chronicle.css"],
+  "languages": [{"lang":"en","name":"English","path":"lang/en.json"}],
+  "readme": "README.md"
+}

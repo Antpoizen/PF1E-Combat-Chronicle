@@ -1,5 +1,5 @@
 import {MOD,authority,setting,combatStarted,participantsOf,selectTarget,now,uid,log,warn} from './utils.mjs';
-import {makeEvent} from '../analytics/model.mjs';
+import {makeEvent,leaders,isAwardEligible} from '../analytics/model.mjs';
 import {readHealth,changesBetween} from '../adapters/health.mjs';
 import {installSoakHooks} from '../adapters/soak.mjs';
 import {playerProjection} from '../services/privacy.mjs';
@@ -77,10 +77,20 @@ export class ChronicleRecorder {
   if(!effects.length)return;
   const target=selectTarget(combat,actor),source=this.resolveEvidence(options,actor,combat);
   if(!target)return;
-  const batchId=uid();const entries=effects.map((change,i)=>({...change,...source,targetId:target.id,targetName:target.name,
+  const batchId=uid();const entries=effects.map((change,i)=>({id:uid(),...change,...source,targetId:target.id,targetName:target.name,
    actionId:options?.combatChronicle?.actionId||batchId,
    eventKey:options?.combatChronicle?.actionId?`health:${options.combatChronicle.actionId}:${target.id}:${change.resource}:${i}`:null,
    evidence:{path:'actor-document',before:change.before,after:change.after,origin:'PF1e/Nevela actor update'}}));
+  // A kill is an enemy HP crossing from above 0 to 0 or below. No active-turn guesses.
+  const hpDamage=entries.find(e=>e.type==='damage' && e.resource==='hp');
+  const enemy=participantsOf(combat)[target.id];
+  if(hpDamage && Number.isFinite(before.hp) && Number.isFinite(after.hp) && before.hp>0 && after.hp<=0 && enemy && !enemy.ally){
+   entries.push({id:uid(),type:'kill',resource:'hp',amount:1,
+    sourceId:source.sourceId,sourceName:source.sourceName,confidence:source.confidence,
+    targetId:target.id,targetName:target.name,damageEventId:hpDamage.id,
+    eventKey:'kill:'+combat.id+':'+target.id+':'+batchId,
+    evidence:{origin:'enemy-hp-crossed-zero',hpBefore:before.hp,hpAfter:after.hp,damageEventId:hpDamage.id}});
+  }
   // Changes are direct observations of actual resource deltas; source is left unattributed if no explicit provenance.
   this.enqueue(()=>this.add(combat,entries));
  }
@@ -121,7 +131,14 @@ export class ChronicleRecorder {
   const event=mutation.event?makeEvent(mutation.event):null;
   if(event)await appendEvents(record,[event]);
   if(mutation.participant){const {id,...patch}=mutation.participant;if(record.participants[id])Object.assign(record.participants[id],patch)}
-  if(mutation.award){if(!record.awards.some(a=>a.title===mutation.award.title&&a.combatantId===mutation.award.combatantId))record.awards.push({...mutation.award,approved:true})}
+  if(mutation.award){
+   const a=mutation.award;
+   if(!isAwardEligible(record.participants[a.combatantId]))throw Error('Only player characters can receive awards');
+   const candidate=leaders(record).find(x=>x.title===a.title && x.winner.id===a.combatantId);
+   if(!candidate)throw Error('This character does not qualify for the suggested award');
+   if(!record.awards.some(v=>v.title===a.title && v.combatantId===a.combatantId))
+    record.awards.push({...a,description:candidate.description,criteria:candidate.criteria,evidence:candidate.evidence,approved:true});
+  }
   if(mutation.report)record.report={...record.report,...mutation.report};
   if(mutation.status)record.status=mutation.status;
   await saveMetadata(record);if(this.records.has(record.combatId))this.records.set(record.combatId,record);this.broadcast(record);return record;

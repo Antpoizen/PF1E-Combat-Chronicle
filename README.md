@@ -1,4 +1,4 @@
-# Combat Chronicle — v0.2.2 Development Build
+# Combat Chronicle — v0.2.3 Development Build
 
 **Foundry VTT 13.351 • Pathfinder 1e system 11.11**
 
@@ -16,7 +16,7 @@ Pushing source to the main branch automatically builds and publishes a versioned
 
 ## Manual local installation
 
-1. Download `Combat-Chronicle-v0.2.2.zip` and extract its single `combat-chronicle` directory.
+1. Download `Combat-Chronicle-v0.2.3.zip` and extract its single `combat-chronicle` directory.
 2. Place that directory into your Foundry `Data/modules/` directory.
 3. Restart Foundry and open a **backup/test world** using PF1e 11.11.
 4. Enable **Combat Chronicle** in Manage Modules. Enable Armor Soak Pool 1.1.1 and Nevela's Automation Suite in your test world.
@@ -33,6 +33,9 @@ Pushing source to the main branch automatically builds and publishes a versioned
 - Nevela compatibility is **observational**: Combat Chronicle records downstream actor changes and does not install another damage wrapper.
 - Damage is credited to a source only with explicit provenance (such as compatible actor update options or PF1e `pf1ApplyDamage` message metadata). Unknown sources are retained and can be attributed in the **Corrections** tab. This avoids falsely crediting the active turn combatant.
 - GM may attribute, void, adjust damage events, assign companion controllers, approve awards, and build sanitized player reports.
+- Award cards explain their criteria and show the candidate's actual result. Approval is limited to player-owned PF1e character actors, never enemy/allied NPCs or summons.
+- Enemy HP crossing from above 0 to 0 or below is recorded as a **kill/0-HP takedown**. A verified attacker receives credit; unattributed events wait for GM source correction. Assigned summons can contribute kills to their controlling PC.
+- Kills appear in the meter breakdown, combatant table, overview, daily archive and CSV, plus the Executioner award.
 - Reports can be posted in chat or created as player-readable Journal Entries after GM preview.
 - Calendar indexes combats by real-world start date in a configurable IANA timezone (`America/Denver` by default).
 - GM can export JSON, CSV statistics, CSV event details, and Markdown summaries.
@@ -40,7 +43,7 @@ Pushing source to the main branch automatically builds and publishes a versioned
 ## Known limitations / not yet production-verified
 
 - **Chat-card attribution is incomplete.** PF1e's `pf1ApplyDamage` hook can expose `options.message`, and the recorder uses this evidence when available, but the installed Nevela automation/Soak interception pathway and player-initiated cross-client actions must be verified in Foundry. Unattributed damage needs GM correction. Spell/item-name breakouts require explicit provenance and will often be empty.
-- **Advanced combat mechanics are incomplete:** automatic confirmation of critical hits, detailed fumbles, takedowns, full control-effect durations, downed states, class-specific healing, tactical weighting, several awards, and advanced narrative report sections.
+- **Advanced combat mechanics are incomplete:** automatic confirmation of critical hits, detailed fumbles, true confirmed deaths (0-HP kill tracking follows this campaign's requested threshold), full control-effect durations, downed states, class-specific healing, tactical weighting, several awards, and advanced narrative report sections.
 - **Historical import, per-date event splitting across midnight, multi-date filtering, advanced chart interactions, journal public-history access, and exhaustive source reconciliation** are not complete.
 - **Mixed Wounds/Vigor and HP fields have not been tested in a live PF1e actor**. The defaults are `system.attributes.{hp,vigor,wounds}.value`; verify your character and NPC sheets produce matching deltas, especially with temporary resources.
 - **Two-GM failover and 50+ combatant performance** require real-world testing. The recorder selects the first active GM lexicographically and uses idempotent event keys when possible.

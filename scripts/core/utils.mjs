@@ -22,7 +22,8 @@ export const participantsOf=combat=>Object.fromEntries(Array.from(combat?.combat
   tokenId:c.tokenId||null,tokenUuid:c.token?.uuid||null,name:c.name||c.actor?.name||'Unknown',
   img:c.img||c.token?.texture?.src||c.actor?.img||'',hidden:!!c.hidden,
   ally:!!(c.actor?.hasPlayerOwner || c.token?.disposition===1 || c.token?.disposition===1),
-  player:!!c.actor?.hasPlayerOwner,controllerId:null
+  player:!!c.actor?.hasPlayerOwner,actorType:c.actor?.type||null,
+  pc:!!(c.actor?.hasPlayerOwner && c.actor?.type==='character'),controllerId:null
 }]));
 export function selectTarget(combat,actor){
   if(!combat||!actor)return null;

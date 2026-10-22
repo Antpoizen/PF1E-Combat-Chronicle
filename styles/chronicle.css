@@ -53,3 +53,15 @@
 .cc-reopen{display:flex;gap:5px;margin:5px;padding:4px}.cc-reopen button{flex:1;font-size:11px;cursor:pointer}
 
 .combat-chronicle .cc-avatar{width:20px;height:20px;object-fit:cover;border-radius:4px;margin-right:6px;vertical-align:middle;border:1px solid #5a6d83}
+
+/* Award review cards show criteria and the actual supporting measurement. */
+.combat-chronicle .cc-award{background:#1d2939;border:1px solid var(--cc-border);border-radius:7px;padding:12px;margin:9px 0;align-items:start;justify-content:space-between;flex-wrap:wrap}
+.combat-chronicle .cc-award-details{flex:1 1 430px;min-width:230px}
+.combat-chronicle .cc-award-details h3{margin:0 0 5px;color:#e9f3ff}
+.combat-chronicle .cc-award-details p{margin:5px 0;color:#b6c7d9;line-height:1.5}
+.combat-chronicle .cc-award-details .cc-award-criteria{color:#cfdaec}
+.combat-chronicle .cc-award-details .cc-award-evidence{color:#a9e0c4}
+.combat-chronicle .cc-award-actions{display:flex;align-items:center;flex:0 0 auto}
+.combat-chronicle .cc-award-approved{color:#94e1b4;border:1px solid #54846c;border-radius:5px;padding:5px 8px}
+.combat-chronicle .cc-approved-award{padding:8px 0;border-bottom:1px solid var(--cc-border)}
+.combat-chronicle .cc-approved-award p{color:#b8c8d8;font-size:11px;margin:3px 0}

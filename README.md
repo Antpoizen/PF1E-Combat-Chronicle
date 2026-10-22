@@ -1,4 +1,4 @@
-# Combat Chronicle — v0.2.3 Development Build
+# Combat Chronicle — v0.2.4 Development Build
 
 **Foundry VTT 13.351 • Pathfinder 1e system 11.11**
 
@@ -16,7 +16,7 @@ Pushing source to the main branch automatically builds and publishes a versioned
 
 ## Manual local installation
 
-1. Download `Combat-Chronicle-v0.2.3.zip` and extract its single `combat-chronicle` directory.
+1. Download `Combat-Chronicle-v0.2.4.zip` and extract its single `combat-chronicle` directory.
 2. Place that directory into your Foundry `Data/modules/` directory.
 3. Restart Foundry and open a **backup/test world** using PF1e 11.11.
 4. Enable **Combat Chronicle** in Manage Modules. Enable Armor Soak Pool 1.1.1 and Nevela's Automation Suite in your test world.

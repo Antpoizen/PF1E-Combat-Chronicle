@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 globalThis.foundry={applications:{api:{ApplicationV2:class{constructor(){}}}}};
-globalThis.game={user:{isGM:true},settings:{get:()=>false}};
+globalThis.game={user:{isGM:true},settings:{get:(module,name)=>name==='timezone'?'America/Denver':false}};
 const {AnalyticsDashboard,needsAttribution}=await import('../scripts/ui/windows.mjs');
 const base={id:'r',combatId:'c',name:'Battle',start:'2026-10-22T03:00:00Z',status:'active',round:2,
  participants:{a:{id:'a',name:'Hero',ally:true},b:{id:'b',name:'Enemy',ally:false}},awards:[]};

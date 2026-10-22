@@ -17,7 +17,7 @@ Hooks.once('init',()=>registerSettings());
 Hooks.once('ready',async()=>{
  if(game.system.id!=='pf1'){console.warn('Combat Chronicle is designed for Pathfinder 1e (pf1)');return;}
  recorder=new ChronicleRecorder();
- game.combatChronicle={recorder,openMeter,openDashboard,version:'0.2.3',
+ game.combatChronicle={recorder,openMeter,openDashboard,version:'0.2.4',
   status:()=>({authority:authority(),soak:soakAvailable(),nevela:nevelaStatus(),activeCombats:recorder.records.size}),
   // Explicit provenance helper for cooperating custom macros: supply these options on actor.update().
   attributionOptions:(combatantId,itemName='',messageId=null)=>({combatChronicle:{sourceId:combatantId,itemName,messageId}})
@@ -39,5 +39,5 @@ Hooks.once('ready',async()=>{
   if(setting('autoOpen',true)&&setting('lastCombatOpened','')!==active.id)recorder.onCombatStartedUI(active);
   if(!game.user.isGM)game.socket.emit(`module.${MOD}`,{kind:'request'});
  }
- console.info(`Combat Chronicle 0.2.3 | GM recorder ${authority()?'active':'passive'}; armor soak ${soakAvailable()?'present':'not detected'}`);
+ console.info(`Combat Chronicle 0.2.4 | GM recorder ${authority()?'active':'passive'}; armor soak ${soakAvailable()?'present':'not detected'}`);
 });

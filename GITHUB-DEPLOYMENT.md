@@ -8,7 +8,7 @@ Foundry Install Module Manifest URL:
 
 https://github.com/Antpoizen/PF1E-Combat-Chronicle/releases/latest/download/module.json
 
-All releases must match the `module.json` version. The existing older tag `1.0.1` has inconsistent versioning; new releases use `v0.2.4` and later.
+All releases must match the `module.json` version. The existing older tag `1.0.1` has inconsistent versioning; new releases use `v0.2.5` and later.
 
 If GitHub Actions reports `Resource not accessible by integration`, enable `contents: write` under repository Actions workflow permissions.
 

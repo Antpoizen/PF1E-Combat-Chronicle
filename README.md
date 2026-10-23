@@ -1,4 +1,4 @@
-# Combat Chronicle — v0.2.4 Development Build
+# Combat Chronicle — v0.2.5 Development Build
 
 **Foundry VTT 13.351 • Pathfinder 1e system 11.11**
 
@@ -16,7 +16,7 @@ Pushing source to the main branch automatically builds and publishes a versioned
 
 ## Manual local installation
 
-1. Download `Combat-Chronicle-v0.2.4.zip` and extract its single `combat-chronicle` directory.
+1. Download `Combat-Chronicle-v0.2.5.zip` and extract its single `combat-chronicle` directory.
 2. Place that directory into your Foundry `Data/modules/` directory.
 3. Restart Foundry and open a **backup/test world** using PF1e 11.11.
 4. Enable **Combat Chronicle** in Manage Modules. Enable Armor Soak Pool 1.1.1 and Nevela's Automation Suite in your test world.
@@ -29,7 +29,10 @@ Pushing source to the main branch automatically builds and publishes a versioned
 - Combat Chronicle listens for Foundry actor and combat events. Recorded events survive a browser refresh because the active GM stores them in **GM-only JournalEntry documents** named `Chronicle | ...`, inside `Combat Chronicle — GM Private`.
 - Events are stored in bounded chunks of 75 per Journal page, rather than indefinitely growing one setting/flag. Each world keeps its own separate archive.
 - Wounds, Vigor, HP, temp resources, and Soak are tracked separately from actor value changes. You can override the default actor paths in the module's **Health Paths** JSON setting if needed after inspecting PF1e data.
-- Armor Soak integration uses verified hooks (`armorSoakPool.damageApplied`, `.refilled`, `.adjusted`) and Soak flag update fallback, including cases where the custom hook fires only on the player client.
+- **Automatic Soak damage tracking:** Armor Soak Pool's `armorSoakPool.damageApplied` hook supplies the actual `absorbed` damage. Combat Chronicle records that as **Soak Dealt**, increases Total Pressure, and records **Soak Received** for the target. Its `overflow` is never counted as health damage unless an HP/Vigor/Wounds decrease is independently observed.
+- When Armor Soak Pool's custom hook fires only on another client, the GM observes the actual Soak flag change as a fallback. Fallback reductions are flagged as **ambiguous for GM review** because the flag alone cannot prove damage versus a manual adjustment. Refills and capacity adjustments are not counted as damage when their dedicated hooks are visible.
+- Soak damage is automatically attributed if a verified PF1e action/message or explicit automation context establishes the attacker. **Armor Soak Pool's native hook does not contain an attacker ID.** Otherwise the exact absorbed amount remains recorded in **Corrections** until the GM assigns its source; it is not guessed from turn order.
+- Soak events use unique action keys so two identical hits separated by a refill are not accidentally merged.
 - Nevela compatibility is **observational**: Combat Chronicle records downstream actor changes and does not install another damage wrapper.
 - Damage is credited to a source only with explicit provenance (such as compatible actor update options or PF1e `pf1ApplyDamage` message metadata). Unknown sources are retained and can be attributed in the **Corrections** tab. This avoids falsely crediting the active turn combatant.
 - GM may attribute, void, adjust damage events, assign companion controllers, approve awards, and build sanitized player reports.

@@ -53,20 +53,26 @@ export class ChronicleRecorder {
   const key=this.snapshotKey(combat,actor),before=this.snapshots.get(key),after=readHealth(actor);
   this.snapshots.set(key,after);if(!before){log('Missing resource baseline',key);return}
   if(Number.isFinite(before.soak)&&Number.isFinite(after.soak)&&before.soak!==after.soak){
-   const id=`soakdelta:${combat.id}:${actor.uuid}:${before.soak}:${after.soak}:${combat.round}:${combat.turn}`;
-   if(!this.pendingSoak.has(id)){
+   const signature=`soakdelta:${combat.id}:${actor.uuid}:${before.soak}:${after.soak}:${combat.round}:${combat.turn}`;
+   if(!this.pendingSoak.has(signature)){
+    // A nonce distinguishes two identical 10→5 hits after an intervening refill.
+    // The native hook shares this event key with the flag-based fallback.
+    const eventKey=`${signature}:${uid()}`;
     const delta=after.soak-before.soak;
     const timeout=setTimeout(()=>{
-      this.pendingSoak.delete(id);
+      if(this.pendingSoak.get(signature)?.eventKey!==eventKey)return;
+      this.pendingSoak.delete(signature);
       const target=selectTarget(combat,actor);if(!target)return;
       const source=this.resolveEvidence(options,actor,combat);
       this.enqueue(()=>this.add(combat,[{
        type:delta<0?'soak':'refill',resource:'soak',amount:Math.abs(delta),delta,
-       targetId:target.id,targetName:target.name,...source,confidence:delta<0?source.confidence:'confirmed',
-       eventKey:id,evidence:{integration:'soak-flag-fallback',old:before.soak,new:after.soak}
+       targetId:target.id,targetName:target.name,...source,confidence:delta<0?'ambiguous':'confirmed',
+       eventKey,evidence:{integration:'soak-flag-fallback',old:before.soak,new:after.soak,
+        amountVerifiedBy:'actor-flag-change',reasonVerified:false,
+        note:'The Armor Soak Pool native hook was not visible to this GM. Negative flag deltas may also reflect manual adjustments.'}
       }]));
     },125);
-    this.pendingSoak.set(id,timeout);
+    this.pendingSoak.set(signature,{timeout,eventKey});
    }
   }
   const effects=changesBetween(before,after);
@@ -107,9 +113,14 @@ export class ChronicleRecorder {
  handleSoak(actor,event){const combat=this.combatForActor(actor);if(!combat||!authority())return;
   const target=selectTarget(combat,actor),source=this.resolveEvidence({},actor,combat);if(!target)return;
   const old=event.evidence?.old,latest=event.evidence?.new;
-  const key=(Number.isFinite(old)&&Number.isFinite(latest))?`soakdelta:${combat.id}:${actor.uuid}:${old}:${latest}:${combat.round}:${combat.turn}`:null;
-  if(key&&this.pendingSoak.has(key)){clearTimeout(this.pendingSoak.get(key));this.pendingSoak.delete(key)}
-  this.enqueue(()=>this.add(combat,[{...event,targetId:target.id,targetName:target.name,...source,eventKey:key}]));
+  const signature=(Number.isFinite(old)&&Number.isFinite(latest))?`soakdelta:${combat.id}:${actor.uuid}:${old}:${latest}:${combat.round}:${combat.turn}`:null;
+  const pending=signature?this.pendingSoak.get(signature):null;
+  if(pending){clearTimeout(pending.timeout);this.pendingSoak.delete(signature)}
+  // Prefer the native Armor Soak Pool DAMAGE_APPLIED hook's exact absorbed value.
+  // Never infer health damage from its overflow field.
+  const eventKey=pending?.eventKey||`soak-hook:${combat.id}:${actor.uuid}:${uid()}`;
+  this.enqueue(()=>this.add(combat,[{...event,targetId:target.id,targetName:target.name,...source,
+   eventKey,evidence:{...event.evidence,amountVerifiedBy:'armor-soak-pool-hook'}}]));
  }
  async updateCombat(combat,changed){if(!authority())return;
   if(combatStarted(combat)){

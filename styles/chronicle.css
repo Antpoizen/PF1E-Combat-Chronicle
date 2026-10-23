@@ -143,3 +143,17 @@
 }
 .combat-chronicle .cc-expand{order:2;}
 .combat-chronicle .cc-val{white-space:nowrap;min-width:0;}
+
+/* Encircle unresolved corrections, as requested. */
+.combat-chronicle .cc-correction-list .cc-correction.cc-correction-needs-attribution{width:100%;box-sizing:border-box;border:3px solid #ee3344!important;border-left:5px solid #fc4656!important;border-radius:8px!important;background:rgba(135,21,32,.20)!important;box-shadow:0 0 0 1px rgba(255,70,86,.20);padding:10px;margin:9px 0 13px;}
+.combat-chronicle .cc-correction-list .cc-correction.cc-correction-needs-attribution:hover{background:rgba(155,24,37,.3)!important;}
+/* Green healing bar beneath damage and pressure. */
+.combat-chronicle .cc-heal-track{order:2;position:relative;display:block;flex:0 0 14px;min-height:14px;width:100%;background:#223d32;border-radius:3px;overflow:hidden;margin:0 0 4px;}
+.combat-chronicle .cc-heal-fill{display:block;height:100%;background:#46b481;transition:width .15s linear;}
+.combat-chronicle .cc-heal-label{position:absolute;left:7px;top:0;line-height:14px;font-size:10px;color:#f4fff8;text-shadow:0 1px 3px #061d12;}
+.combat-chronicle .cc-extras{order:3;display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:#c7dae5;margin-bottom:7px;}
+.combat-chronicle .cc-extras b{color:#f7dda6;margin-right:6px;}
+.combat-chronicle .cc-expand{order:4;}
+.combat-chronicle .cc-toolbar{flex-wrap:wrap;justify-content:flex-start;}
+.combat-chronicle .cc-toolbar select{flex:1 1 145px;min-width:130px;}
+.combat-chronicle .cc-best-hit{padding:10px;border:1px solid #315e5e;border-radius:5px;color:#b9ead8;background:#1a333b;}

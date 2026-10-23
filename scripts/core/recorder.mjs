@@ -1,6 +1,7 @@
 import {MOD,authority,setting,combatStarted,participantsOf,selectTarget,now,uid,log,warn} from './utils.mjs';
 import {makeEvent,leaders,isAwardEligible} from '../analytics/model.mjs';
-import {readHealth,changesBetween} from '../adapters/health.mjs';
+import {readHealth,changesBetween,playerWoundState} from '../adapters/health.mjs';
+import {saveOutcomeFromRoll,criticalOutcomeFromRoll} from '../adapters/rolls.mjs';
 import {installSoakHooks} from '../adapters/soak.mjs';
 import {playerProjection} from '../services/privacy.mjs';
 import {createRecord,findByCombat,loadRecord,appendEvents,saveMetadata,listIndexes} from './store.mjs';
@@ -76,6 +77,12 @@ export class ChronicleRecorder {
    }
   }
   const effects=changesBetween(before,after);
+  const pc=actor?.type==='character'&&actor?.hasPlayerOwner===true;
+  const prior=playerWoundState(before,pc),next=playerWoundState(after,pc);
+  if(!prior.down&&next.down)effects.push({type:'downed',resource:'wounds',amount:1});
+  if(!prior.dead&&next.dead)effects.push({type:'death',resource:'wounds',amount:1,evidence:{wounds:after.wounds,constitution:after.constitution}});
+  if(prior.down&&!next.down)effects.push({type:'revived',resource:'wounds',amount:1});
+
   const previousConditions=this.conditions.get(key)||new Set();const currentConditions=new Set(actor.statuses||[]);
   this.conditions.set(key,currentConditions);
   for(const c of currentConditions)if(!previousConditions.has(c))effects.push({type:'condition',resource:String(c),amount:1,applied:true});
@@ -137,6 +144,26 @@ export class ChronicleRecorder {
   this.enqueue(()=>this.add(combat,[{type:'roll',sourceId:src.id,sourceName:src.name,messageId:message.id,
     natural:natural.length===1?natural[0]:null,evidence:{rollTotals:message.rolls.map(r=>r.total),naturalD20:natural},visibility:hidden?'private':'gm',confidence:'confirmed',eventKey:`roll:${message.id}`} ]));
  }
+ recordSave(actor,message,saveType){
+  if(!authority())return;
+  const combat=this.combatForActor(actor),target=selectTarget(combat,actor);
+  if(!combat||!target)return;
+  const outcome=saveOutcomeFromRoll(message,saveType);
+  if(!outcome?.failed)return;
+  const src=this.resolveEvidence(message?.options||{},actor,combat);
+  this.enqueue(()=>this.add(combat,[{type:'failedSave',resource:saveType,amount:1,failed:true,
+   sourceId:src.sourceId,targetId:target.id,targetName:target.name,confidence:src.confidence,
+   dc:outcome.dc,rollTotal:outcome.total,visibility:'gm',
+   eventKey:message?.id?`failedSave:${combat.id}:${message.id}:${target.id}`:null}]));
+ }
+ recordCriticalRoll(actor,message){
+  if(!authority()||!criticalOutcomeFromRoll(message))return;
+  const combat=this.combatForActor(actor),source=selectTarget(combat,actor);
+  if(!combat||!source)return;
+  this.enqueue(()=>this.add(combat,[{type:'criticalRoll',resource:'attack',amount:1,natural:20,
+   sourceId:source.id,sourceName:source.name,confidence:'confirmed',visibility:'gm',
+   eventKey:message?.id?`criticalRoll:${combat.id}:${message.id}:${source.id}`:null}]));
+ }
  async modify(recordId,mutation){if(!authority())throw Error('Only authoritative GM can edit records');
   const record=await loadRecord(recordId);if(!record)throw Error('Record unavailable');
   const event=mutation.event?makeEvent(mutation.event):null;
@@ -166,6 +193,8 @@ export class ChronicleRecorder {
   Hooks.on('pf1ApplyDamage',(actor,options)=>this.trackApplyContext(actor,options));
   installSoakHooks((actor,event)=>this.handleSoak(actor,event));
   Hooks.on('createChatMessage',m=>this.observeChat(m));
+  Hooks.on('pf1ActorRollSave',(actor,message,save)=>this.recordSave(actor,message,save));
+  Hooks.on('pf1ActorRollAttack',(actor,message)=>this.recordCriticalRoll(actor,message));
   game.socket.on(`module.${MOD}`,message=>{
    if(message.kind==='state'&&!game.user.isGM&&setting('allowPlayers',true)){this.latest=message.projection;this.onRefresh();}
    if(message.kind==='revoke'&&!game.user.isGM){this.latest=null;this.onRefresh();}

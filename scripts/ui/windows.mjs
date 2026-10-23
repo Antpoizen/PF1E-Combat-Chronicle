@@ -1,5 +1,5 @@
 import {MOD,esc,setting,number,dateKey} from '../core/utils.mjs';
-import {statistics,leaders,dailyAggregate,resolvedEvents,isAwardEligible} from '../analytics/model.mjs';
+import {statistics,leaders,dailyAggregate,resolvedEvents,isAwardEligible,largestHit} from '../analytics/model.mjs';
 import {playerProjection} from '../services/privacy.mjs';
 import {reportText,csvStats,csvEvents,download} from '../services/export.mjs';
 const App=foundry.applications.api.ApplicationV2;
@@ -16,17 +16,19 @@ const shown=(record)=>game.user.isGM?record?.participants&&record?.events?statis
 const scaled=(p,scope,round,grouped)=>{
  const r=scope==='round'?p.rounds?.[String(round)]||{}:null;
  const div=scope==='dpr'?Math.max(1,round||1):1;
- return {...p,effective:(r?r.effective||0:p.effective||0)/div,soak:(r?r.soak||0:p.soak||0)/div,
+ return {...p,critRolls:scope==='round'?(r?.critRolls||0):p.critRolls,kills:scope==='round'?(r?.kills||0):p.kills,effective:(r?r.effective||0:p.effective||0)/div,soak:(r?r.soak||0:p.soak||0)/div,
  pressure:(r?r.pressure||0:p.pressure||0)/div,healing:(r?r.healing||0:p.healing||0)/div};
 };
 function ranked(rec,{scope='total',sort='pressure',allies=true}={}){
  const values=entries(shown(rec));const p=rec?.participants||{};
  return values.filter(row=>row.id!=='_unattributed'&&(!allies||p[row.id]?.ally)&&(!setting('groupSummons',true)||!p[row.id]?.controllerId))
  .map(row=>({...scaled(row,scope,rec?.round||0),img:p[row.id]?.img||''})).sort((a,b)=>(b[sort]||0)-(a[sort]||0));}
-function meterRows(rows,sort,expanded){const max=Math.max(1,...rows.map(p=>p.pressure||0));return rows.map((p,i)=>{
+function meterRows(rows,sort,expanded,extra='both'){const max=Math.max(1,...rows.map(p=>p.pressure||0)),healMax=Math.max(1,...rows.map(p=>p.healing||0));return rows.map((p,i)=>{
  const main=Math.max(0,100*(p.effective||0)/max),soak=Math.max(0,100*(p.soak||0)/max);
- const sub=expanded.has(p.id)?`<div class="cc-expand"><div>Vigor <b>${fmt(p.vigor)}</b> · Wounds <b>${fmt(p.wounds)}</b> · HP <b>${fmt(p.hp)}</b> · Soak dealt <b>${fmt(p.soak)}</b> · Soak received <b>${fmt(p.soakTaken)}</b> · Healing <b>${fmt(p.healing)}</b> · Kills <b>${fmt(p.kills)}</b></div><div>${Object.entries(p.items||{}).map(([k,v])=>`${esc(k)}: ${fmt(v)}`).join(' • ')||'No verified item attribution recorded'}</div>${Object.values(p.minions||{}).map(m=>`<div>${esc(m.name)}: ${fmt(m.effective)} effective / ${fmt(m.pressure)} pressure</div>`).join('')}</div>`:'';
- return `<div class="cc-meter-row"><button class="cc-row-head" data-action="expand" data-id="${esc(p.id)}"><span class="cc-name" title="${esc(p.name)}">${p.img?`<img class="cc-avatar" src="${esc(p.img)}" alt="">`:``}<span class="cc-name-text"><span class="cc-rank">${i+1}.</span> ${esc(p.name)}</span></span><span class="cc-val">${fmt(p.effective)}</span><span class="cc-val emph">${fmt(p.pressure)}</span></button><div class="cc-bars"><span class="cc-health" style="width:${main.toFixed(2)}%"></span><span class="cc-soak" style="width:${soak.toFixed(2)}%"></span></div>${sub}</div>`;
+ const healWidth=Math.max(0,Math.min(100,100*(p.healing||0)/healMax));
+ const extras=extra==='none'?'':`<span class="cc-extras">${['both','kills'].includes(extra)?`Kills <b>${fmt(p.kills)}</b>`:''} ${['both','crits'].includes(extra)?`Crit rolls <b>${fmt(p.critRolls)}</b>`:''}</span>`;
+ const sub=expanded.has(p.id)?`<div class="cc-expand"><div>Vigor <b>${fmt(p.vigor)}</b> · Wounds <b>${fmt(p.wounds)}</b> · HP <b>${fmt(p.hp)}</b> · Soak dealt <b>${fmt(p.soak)}</b> · Soak received <b>${fmt(p.soakTaken)}</b> · Healing <b>${fmt(p.healing)}</b> · Kills <b>${fmt(p.kills)}</b> · Crit rolls <b>${fmt(p.critRolls)}</b> · Largest hit <b>${fmt(p.greatest)}</b> · Downed <b>${fmt(p.downed)}</b> · Deaths <b>${fmt(p.deaths)}</b></div><div>${Object.entries(p.items||{}).map(([k,v])=>`${esc(k)}: ${fmt(v)}`).join(' • ')||'No verified item attribution recorded'}</div>${Object.values(p.minions||{}).map(m=>`<div>${esc(m.name)}: ${fmt(m.effective)} effective / ${fmt(m.pressure)} pressure</div>`).join('')}</div>`:'';
+ return `<div class="cc-meter-row"><button class="cc-row-head" data-action="expand" data-id="${esc(p.id)}"><span class="cc-name" title="${esc(p.name)}">${p.img?`<img class="cc-avatar" src="${esc(p.img)}" alt="">`:``}<span class="cc-name-text"><span class="cc-rank">${i+1}.</span> ${esc(p.name)}</span></span><span class="cc-val">${fmt(p.effective)}</span><span class="cc-val emph">${fmt(p.pressure)}</span></button><div class="cc-bars"><span class="cc-health" style="width:${main.toFixed(2)}%"></span><span class="cc-soak" style="width:${soak.toFixed(2)}%"></span></div><div class="cc-heal-track"><span class="cc-heal-fill" style="width:${healWidth.toFixed(2)}%"></span><span class="cc-heal-label">Healing ${fmt(p.healing)}</span></div>${extras}${sub}</div>`;
  }).join('')||'<p class="cc-muted">No attributed allied damage yet. Check the Corrections tab for unattributed events.</p>';
 }
 class WindowBase extends App{
@@ -41,15 +43,15 @@ class WindowBase extends App{
 }
 export class LiveMeter extends WindowBase{
  static DEFAULT_OPTIONS={id:'combat-chronicle-live',classes:['combat-chronicle','cc-live'],window:{title:'Combat Chronicle • Live',resizable:true,minimizable:true},position:{width:510,height:480}};
- constructor(...a){super(...a);this.sort='pressure';this.scope='total';this.expanded=new Set()}
+ constructor(...a){super(...a);this.sort='pressure';this.scope='total';this.extra='both';this.expanded=new Set()}
  async html(){const rec=current();if(!rec)return `<div class="cc-shell"><p>There is no active combat.</p>${btn('Open Combat Archive','dashboard')}</div>`;
  const rows=ranked(rec,{scope:this.scope,sort:this.sort});return `<div class="cc-shell cc-meter"><div class="cc-topline"><span class="cc-live-indicator">● LIVE</span><span>Round ${fmt(rec.round)} • ${esc(rec.name)}</span></div><div class="cc-toolbar">
- ${select('scope',this.scope,[['total','Encounter'],['round','Current round'],['dpr','Damage per round']])}${btn('Analytics','dashboard')}</div>
+ ${select('scope',this.scope,[['total','Encounter'],['round','Current round'],['dpr','Damage per round']])}${select('meterSort',this.sort,[['pressure','Rank: Pressure'],['effective','Rank: Effective'],['healing','Rank: Healing'],['kills','Rank: Kills'],['critRolls','Rank: Crit rolls'],['greatest','Rank: Largest hit']])}${select('meterExtra',this.extra,[['both','Show: Kills + Crits'],['kills','Show: Kills'],['crits','Show: Crit rolls'],['none','Show: Minimal']])}${btn('Analytics','dashboard')}</div>
  <div class="cc-columns"><span>Combatant</span><button data-action="sort" data-id="effective">Effective ${this.sort==='effective'?'▼':''}</button><button data-action="sort" data-id="pressure">Pressure ${this.sort==='pressure'?'▼':''}</button></div>
- <div class="cc-rows">${meterRows(rows,this.sort,this.expanded)}</div><div class="cc-foot">Effective: Vigor + Wounds + HP<br>Pressure: Effective + absorbed Soak</div></div>`;}
+ <div class="cc-rows">${meterRows(rows,this.sort,this.expanded,this.extra)}</div><div class="cc-foot">Effective: Vigor + Wounds + HP<br>Pressure: Effective + absorbed Soak</div></div>`;}
  async _onClose(options){try{await game.settings.set(MOD,'meterPosition',JSON.stringify(this.position));}catch{}return super._onClose(options)}
  action(a,id){if(a==='sort'){this.sort=id;this.refresh()}else if(a==='expand'){this.expanded.has(id)?this.expanded.delete(id):this.expanded.add(id);this.refresh()}else if(a==='dashboard')openDashboard()}
- change(a,val){if(a==='scope'){this.scope=val;this.refresh()}}
+ change(a,val){if(a==='scope')this.scope=val;else if(a==='meterSort')this.sort=val;else if(a==='meterExtra')this.extra=val;else return;this.refresh()}
 }
 // Flag missing or explicitly unresolved source attribution after GM corrections.
 export const needsAttribution = event =>
@@ -76,18 +78,18 @@ export class AnalyticsDashboard extends WindowBase{
  switch(this.tab){case 'overview':return this.overview(r);case 'combatants':return this.combatants(r);case 'charts':return sectionTitle('Damage by Round','Blue: effective • Gray: total pressure')+chart(r);
  case 'timeline':return this.timeline(r);case 'impact':return this.impact(r);case 'corrections':return this.corrections(r);case 'awards':return this.awards(r);case 'reports':return this.reports(r);default:return ''}}
  heading(r){return `<div class="cc-record-heading"><h2>${esc(r.name)}</h2><small>${esc(r.start)} • ${esc(r.status)} • Round ${fmt(r.round)}</small></div>`}
- overview(r){const s=entries(shown(r));const allied=s.filter(x=>r.participants?.[x.id]?.ally&&!r.participants?.[x.id]?.controllerId);const neutral=s.filter(x=>!r.participants?.[x.id]?.ally&&x.id!=='_unattributed');const sum=(rows,key)=>rows.reduce((n,x)=>n+number(x[key]),0);
- return this.heading(r)+`<div class="cc-kpis">${kpi('Allied Effective',sum(allied,'effective'))}${kpi('Allied Pressure',sum(allied,'pressure'))}${kpi('Healing',sum(allied,'healing'))}${kpi('Player Kills',sum(s.filter(x=>isAwardEligible(r.participants?.[x.id])),'kills'))}${kpi('Enemy Effective',sum(neutral,'effective'))}</div><h3>Combat performance</h3>${meterRows(ranked(r,{allies:false}), 'pressure',new Set())}${btn('Open Live Meter','meter')}<p class="cc-muted">The GM Corrections tab identifies unapportioned damage. Rankings never assume that a chat roll necessarily landed.</p>`}
+ overview(r){const s=entries(shown(r));const allied=s.filter(x=>r.participants?.[x.id]?.ally&&!r.participants?.[x.id]?.controllerId);const neutral=s.filter(x=>!r.participants?.[x.id]?.ally&&x.id!=='_unattributed');const best=game.user.isGM?largestHit(r):null;const sum=(rows,key)=>rows.reduce((n,x)=>n+number(x[key]),0);
+ return this.heading(r)+`<div class="cc-kpis">${kpi('Allied Effective',sum(allied,'effective'))}${kpi('Allied Pressure',sum(allied,'pressure'))}${kpi('Healing',sum(allied,'healing'))}${kpi('Player Kills',sum(s.filter(x=>isAwardEligible(r.participants?.[x.id])),'kills'))}${kpi('Enemy Effective',sum(neutral,'effective'))}</div>${best?`<p class="cc-best-hit">Largest player hit: <b>${esc(best.sourceName)}</b> — ${fmt(best.amount)} effective damage (${esc(best.itemName)}).</p>`:''}<h3>Combat performance</h3>${meterRows(ranked(r,{allies:false}), 'pressure',new Set())}${btn('Open Live Meter','meter')}<p class="cc-muted">The GM Corrections tab identifies unapportioned damage. Rankings never assume that a chat roll necessarily landed.</p>`}
  combatants(r){const ps=entries(shown(r)).filter(p=>p.id!=='_unattributed').sort((a,b)=>b.pressure-a.pressure);
  const controls=game.user.isGM;
  const people=Object.values(r.participants||{});
- return this.heading(r)+table(['Combatant','Effective','Pressure','Kills','Soak Dealt','Soak Received','Healed','Taken',...(controls?['Controller']:[])],ps.map(p=>[
- esc(p.name),fmt(p.effective),fmt(p.pressure),fmt(p.kills),fmt(p.soak),fmt(p.soakTaken),fmt(p.healing),fmt(p.received),
+ return this.heading(r)+table(['Combatant','Effective','Pressure','Kills','Crit Rolls','Largest Hit','Downed','Deaths','Soak Dealt','Soak Received','Healed','Taken',...(controls?['Controller']:[])],ps.map(p=>[
+ esc(p.name),fmt(p.effective),fmt(p.pressure),fmt(p.kills),fmt(p.critRolls),fmt(p.greatest),fmt(p.downed),fmt(p.deaths),fmt(p.soak),fmt(p.soakTaken),fmt(p.healing),fmt(p.received),
  ...(controls?[`<select data-change="controller" data-participant="${esc(p.id)}"><option value="">None</option>${people.filter(x=>x.id!==p.id&&x.ally).map(x=>`<option value="${esc(x.id)}" ${r.participants[p.id]?.controllerId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`]:[]) ]));}
  impact(r){return this.heading(r)+sectionTitle('Impact Rankings','Sortable metrics and suggested awards')+table(['Combatant','Damage','Pressure','Soak Dealt','Kills','Healing','Damage Taken','Soak Received','Control'],entries(shown(r)).filter(p=>p.id!=='_unattributed').sort((a,b)=>b.pressure-a.pressure).map(p=>[esc(p.name),fmt(p.effective),fmt(p.pressure),fmt(p.soak),fmt(p.kills),fmt(p.healing),fmt(p.received),fmt(p.soakTaken),fmt(p.control)]))}
  timeline(r){if(!game.user.isGM)return '<p>GM only.</p>';return this.heading(r)+`<div class="cc-timeline">${resolvedEvents(r.events||[]).slice(-500).reverse().map(e=>`<div class="${e.voided?'cc-voided':''}"><small>R${fmt(e.round)} • ${esc(e.time?.slice(11,19))}</small><b>${esc(e.type)}</b> ${esc(e.sourceName||'Unknown')} → ${esc(e.targetName||'')} ${esc(e.resource||'')} ${fmt(e.amount)} <em>${esc(e.confidence||'')}</em></div>`).join('')}</div>`}
  corrections(r){if(!game.user.isGM)return '';
- const all=resolvedEvents(r.events||[]).filter(e=>!e.voided&&(['damage','soak','healing','adjustment','condition'].includes(e.type)));
+ const all=resolvedEvents(r.events||[]).filter(e=>!e.voided&&(['damage','soak','healing','adjustment','condition','failedSave'].includes(e.type)));
  const pending=all.filter(needsAttribution);
  const src=Object.values(r.participants||{});return this.heading(r)+sectionTitle('Corrections','Soak absorbed is read automatically from Armor Soak Pool. When the attacker is unavailable, assign the source here; flag-only fallbacks require review.')+
  `<p>${pending.length} events need attribution review.</p><div class="cc-correction-list">${all.slice(-150).reverse().map(e=>{const pending=needsAttribution(e);return `<div class="cc-correction${pending?' cc-correction-needs-attribution':''}" data-attribution="${pending?'pending':'resolved'}"><span>R${e.round}: ${esc(e.type==='soak'?'Soak absorbed':e.type)} ${fmt(e.amount)} ${esc(e.resource||'')} → ${esc(e.targetName||'Unknown')}</span>${pending?'<span class="cc-attribution-flag">Needs attribution</span>':''}<select data-source-for="${esc(e.id)}"><option value="">Choose source</option>${src.map(c=>`<option value="${esc(c.id)}" ${e.sourceId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>${btn('Assign','assign',e.id)} <input type="number" min="0" step="1" style="width:66px" data-amount-for="${esc(e.id)}" value="${fmt(e.amount)}">${btn('Set Amount','adjust',e.id)} ${btn('Void','void',e.id)}</div>`}).join('')}</div><h3>Manual Event</h3><div class="cc-manual"><label>Type ${select('manualType',this.manualType||'damage',[['damage','Damage'],['healing','Healing'],['soak','Soak']])}</label><label>Resource ${select('manualResource',this.manualResource||'hp',[['hp','HP'],['vigor','Vigor'],['wounds','Wounds'],['soak','Soak']])}</label><label>Amount <input type="number" id="cc-manual-amount" min="0" value="0"></label><label>Source <select id="cc-manual-source"><option value="">Unattributed</option>${src.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label><label>Target <select id="cc-manual-target"><option value="">None</option>${src.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>${btn('Add correction','manual')}</div>`;}

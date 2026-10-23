@@ -17,7 +17,7 @@ export function playerProjection(record,settings={}){
  const rows=Object.fromEntries(Object.entries(raw).filter(([id])=>allowed.has(id)).map(([id,s])=>[id,{
   id:s.id,name:participants[id]?.name, effective:s.effective,pressure:s.pressure,soak:s.soak,healing:s.healing,
   rounds:s.rounds,items:s.items,minions:Object.fromEntries(Object.entries(s.minions||{}).filter(([k])=>allowed.has(k))),
-  vigor:s.vigor,wounds:s.wounds,hp:s.hp,received:s.received,soakTaken:s.soakTaken,kills:s.kills
+  vigor:s.vigor,wounds:s.wounds,hp:s.hp,received:s.received,soakTaken:s.soakTaken,kills:s.kills,critRolls:s.critRolls,greatest:s.greatest,downed:s.downed,deaths:s.deaths
  }]));
  const awards=(record.awards||[]).filter(a=>a.approved&&allowed.has(a.combatantId)&&isAwardEligible(p[a.combatantId])).map(a=>({title:a.title,combatantId:a.combatantId}));
  return {id:record.id,combatId:record.combatId,name:record.privacy?.shareEncounterName?record.name:'Combat Encounter',round:record.round,turn:record.turn,status:record.status,start:record.start,participants,

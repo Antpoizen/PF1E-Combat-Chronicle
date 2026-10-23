@@ -8,7 +8,7 @@ const participants={pc:{id:'pc',ally:true,pc:true,name:'Hero'},target:{id:'targe
 const record=events=>({participants,events,round:1});
 test('verified natural 20 needs no confirmation and failed save needs a DC',()=>{
  const nat20={rolls:[{total:27,terms:[{faces:20,results:[{result:20,active:true}]}]}]};
- assert.deepEqual(criticalOutcomeFromRoll(nat20),{natural:20});
+ assert.deepEqual(criticalOutcomeFromRoll(nat20),{natural:20,reason:'natural20'});
  assert.equal(saveOutcomeFromRoll({...nat20,dc:30},'fort').failed,false); // natural 20 auto succeeds
  assert.equal(saveOutcomeFromRoll({rolls:[{total:11,terms:[{faces:20,results:[{result:5}]}]}],dc:18},'will').failed,true);
  assert.equal(saveOutcomeFromRoll({rolls:[{total:11}]},'will'),null);

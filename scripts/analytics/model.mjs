@@ -1,6 +1,6 @@
 import {number,clone,uid,now} from '../core/utils.mjs';
 import {resourceDamage} from '../adapters/health.mjs';
-export const EVENT_TYPES=['damage','healing','soak','refill','roll','condition','turn','correction','downed','death','revived','failedSave','criticalRoll','kill','critical','encounter'];
+export const EVENT_TYPES=['damage','healing','soak','refill','roll','condition','turn','correction','downed','death','revived','failedSave','criticalRoll','control','kill','critical','encounter'];
 // Only player characters can receive awards. Historical records use ownership fallback.
 export function isAwardEligible(p){
  if(!p || p.ally!==true || p.controllerId) return false;
@@ -114,13 +114,14 @@ export function statistics(record,opts={}){
   else if(e.type==='failedSave'&&e.failed===true){
     if(dst)dst.failedSaves++;
     if(e.sourceId && e.sourceId!==e.targetId){src.control++;src.failedSavesCaused++;round.control=(round.control||0)+1;}
-  }else if(e.type==='criticalRoll'&&e.natural===20){
+  }else if(e.type==='criticalRoll'&&(e.critical===true||e.natural===20)){
     src.critRolls++;src.crits++;round.critRolls=(round.critRolls||0)+1;
   }else if(e.type==='healing'){
     if(['hp','vigor','wounds'].includes(e.resource)){src.healing+=amount;round.healing+=amount;if(dst)dst.healingReceived+=amount;}
   }else if(e.type==='critical'&&e.confirmed)src.crits++;
   else if(e.type==='roll') {if(e.natural===20)src.natural20++;if(e.natural===1)src.natural1++;}
     else if(e.type==='condition'&&e.applied&&e.sourceId)src.control++;
+  else if(e.type==='control'&&e.sourceId&&e.applied!==false){src.control+=amount;round.control=(round.control||0)+amount;}
   if((effective||e.type==='soak')&&e.itemName)src.items[e.itemName]=(src.items[e.itemName]||0)+effective+(e.type==='soak'?amount:0);
  }
 

@@ -11,6 +11,9 @@ export function mappings(){let configured={};try{configured=JSON.parse(setting('
 export function readHealth(actor){const state={};for(const [name,paths] of Object.entries(mappings())){
   for(const path of paths){const value=get(actor,path);if(typeof value==='number'&&Number.isFinite(value)){state[name]=value;break;}}
  }
+ const constitution=['system.abilities.con.total','system.abilities.con.value','system.abilities.con.score']
+  .map(path=>get(actor,path)).find(value=>typeof value==='number'&&Number.isFinite(value)&&value>0);
+ if(constitution!==undefined)state.constitution=constitution;
  const soak=actor?.flags?.['armor-soak-pool']?.current;if(typeof soak==='number')state.soak=soak;
  return state;
 }
@@ -25,3 +28,11 @@ export function resourceDamage(event,includeTemporary=false){if(event.type!=='da
  return ['hp','vigor','wounds'].includes(event.resource)||includeTemporary&&['tempHp','tempVigor'].includes(event.resource)?number(event.amount):0;
 }
 export function watchHealth(actor, before){return changesBetween(before,readHealth(actor));}
+
+/** User's Wounds/Vigor thresholds; no death guess when Constitution is unknown. */
+export function playerWoundState(state,pc=false){
+ if(!pc||!Number.isFinite(state?.vigor)||!Number.isFinite(state?.wounds))return {down:false,dead:false};
+ const con=state.constitution;
+ const dead=Number.isFinite(con)&&con>0&&state.wounds<=-con;
+ return {down:(state.vigor<=0&&state.wounds<0)||dead,dead};
+}

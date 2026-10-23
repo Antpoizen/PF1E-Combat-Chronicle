@@ -1,6 +1,6 @@
 import {number,clone,uid,now} from '../core/utils.mjs';
 import {resourceDamage} from '../adapters/health.mjs';
-export const EVENT_TYPES=['damage','healing','soak','refill','roll','condition','turn','correction','downed','death','kill','critical','encounter'];
+export const EVENT_TYPES=['damage','healing','soak','refill','roll','condition','turn','correction','downed','death','revived','failedSave','criticalRoll','kill','critical','encounter'];
 // Only player characters can receive awards. Historical records use ownership fallback.
 export function isAwardEligible(p){
  if(!p || p.ally!==true || p.controllerId) return false;
@@ -52,8 +52,8 @@ export const AWARD_DEFINITIONS=[
   {
     "title": "Critical Master",
     "key": "crits",
-    "description": "Recognizes confirmed critical-hit performance.",
-    "criteria": "Most recorded and explicitly confirmed critical hits; threats alone are insufficient."
+    "description": "Recognizes natural-20 attack rolls without needing a confirmation roll.",
+    "criteria": "Most verified natural-20 attack rolls recorded by PF1e."
   },
   {
     "title": "Lucky Dice",
@@ -85,7 +85,7 @@ export function resolvedEvents(events=[]){
 }
 const fresh=(id,name)=>({id,name,effective:0,pressure:0,soak:0,healing:0,received:0,healingReceived:0,soakTaken:0,
  vigor:0,wounds:0,hp:0,tempHp:0,tempVigor:0,nonlethal:0,crits:0,natural20:0,natural1:0,downed:0,takedowns:0,
- control:0,kills:0,rounds:{},items:{},minions:{},greatest:0});
+ control:0,failedSaves:0,failedSavesCaused:0,critRolls:0,deaths:0,revivals:0,kills:0,rounds:{},items:{},minions:{},greatest:0});
 export function statistics(record,opts={}){
  const result={};const p=record?.participants||{};
  for(const [id,v] of Object.entries(p))result[id]=fresh(id,v.name);
@@ -100,7 +100,7 @@ export function statistics(record,opts={}){
   const effective=resourceDamage(e,includesTemp);
   if(e.type==='damage'){
     src.effective+=effective;src.pressure+=effective;round.effective+=effective;round.pressure+=effective;
-    if(effective){src[e.resource]=(src[e.resource]||0)+effective;src.greatest=Math.max(src.greatest,effective)}
+    if(effective){src[e.resource]=(src[e.resource]||0)+effective}
     if(dst)dst.received+=effective;
   }else if(e.type==='soak'){
     src.soak+=amount;src.pressure+=amount;round.soak+=amount;round.pressure+=amount;
@@ -108,28 +108,65 @@ export function statistics(record,opts={}){
   }else if(e.type==='kill'){
     if(e.sourceId){src.kills++;src.takedowns++;round.kills=(round.kills||0)+1;}
     else src.kills++; // Explicitly unattributed until corrected by the GM.
+  }else if(e.type==='downed'&&dst)dst.downed++;
+  else if(e.type==='death'&&dst)dst.deaths++;
+  else if(e.type==='revived'&&dst)dst.revivals++;
+  else if(e.type==='failedSave'&&e.failed===true){
+    if(dst)dst.failedSaves++;
+    if(e.sourceId && e.sourceId!==e.targetId){src.control++;src.failedSavesCaused++;round.control=(round.control||0)+1;}
+  }else if(e.type==='criticalRoll'&&e.natural===20){
+    src.critRolls++;src.crits++;round.critRolls=(round.critRolls||0)+1;
   }else if(e.type==='healing'){
     if(['hp','vigor','wounds'].includes(e.resource)){src.healing+=amount;round.healing+=amount;if(dst)dst.healingReceived+=amount;}
   }else if(e.type==='critical'&&e.confirmed)src.crits++;
   else if(e.type==='roll') {if(e.natural===20)src.natural20++;if(e.natural===1)src.natural1++;}
-  else if(e.type==='downed'&&dst)dst.downed++;
-  else if(e.type==='condition'&&e.applied&&e.sourceId)src.control++;
+    else if(e.type==='condition'&&e.applied&&e.sourceId)src.control++;
   if((effective||e.type==='soak')&&e.itemName)src.items[e.itemName]=(src.items[e.itemName]||0)+effective+(e.type==='soak'?amount:0);
  }
+
+ // Combine direct damage to several health resources only when it belongs to
+ // one recorded action against the SAME target.
+ const hits=new Map();
+ for(const e of resolvedEvents(record?.events||[])){
+  if(e.voided||e.type!=='damage'||!e.sourceId||!e.targetId)continue;
+  const damage=resourceDamage(e,includesTemp);if(damage<=0)continue;
+  const key=e.actionId?`${e.sourceId}:${e.targetId}:${e.actionId}`:`event:${e.id}`;
+  const hit=hits.get(key)||{sourceId:e.sourceId,damage:0};
+  hit.damage+=damage;hits.set(key,hit);
+ }
+ for(const hit of hits.values())if(result[hit.sourceId])
+  result[hit.sourceId].greatest=Math.max(result[hit.sourceId].greatest,hit.damage);
+
  // Explicit controller grouping without losing the individual record.
  if(opts.groupSummons){
    for(const [id,v] of Object.entries(p))if(v.controllerId && result[id] && result[v.controllerId]){
      const child=result[id],master=result[v.controllerId];
-     for(const field of ['effective','pressure','soak','healing','kills','takedowns'])master[field]+=child[field];
+     for(const field of ['effective','pressure','soak','healing','kills','takedowns','crits','critRolls','failedSavesCaused','control'])master[field]+=child[field];
      master.greatest=Math.max(master.greatest,child.greatest);
-     master.minions[id]={name:child.name,effective:child.effective,pressure:child.pressure,kills:child.kills};
+     master.minions[id]={name:child.name,effective:child.effective,pressure:child.pressure,kills:child.kills,critRolls:child.critRolls};
      for(const [roundId,val] of Object.entries(child.rounds)){
        const r=master.rounds[roundId]??={effective:0,soak:0,pressure:0,healing:0};
-       for(const k of ['effective','soak','pressure','healing'])r[k]+=(val[k]||0);
+       for(const k of ['effective','soak','pressure','healing','critRolls','kills','control'])r[k]+=(val[k]||0);
      }
    }
  }
  return result;
+}
+export function largestHit(record,{playersOnly=true}={}){
+ const people=record?.participants||{},hits=new Map();
+ for(const e of resolvedEvents(record?.events||[])){
+  if(e.voided||e.type!=='damage'||!e.sourceId||!e.targetId)continue;
+  const amount=resourceDamage(e,false);if(!(amount>0))continue;
+  const origin=people[e.sourceId];
+  const owner=origin?.controllerId?people[origin.controllerId]:null;
+  const credited=owner&&isAwardEligible(owner)?owner:origin;
+  if(playersOnly&&!isAwardEligible(credited))continue;
+  const key=e.actionId?`${e.sourceId}:${e.targetId}:${e.actionId}`:`event:${e.id}`;
+  const hit=hits.get(key)||{amount:0,sourceId:credited?.id||e.sourceId,sourceName:credited?.name||e.sourceName||'Unknown',
+   targetName:e.targetName||people[e.targetId]?.name||'Unknown',itemName:e.itemName||'Unspecified attack'};
+  hit.amount+=amount;hits.set(key,hit);
+ }
+ return [...hits.values()].sort((a,b)=>b.amount-a.amount)[0]||null;
 }
 export function leaders(record){
  const p=record?.participants||{};

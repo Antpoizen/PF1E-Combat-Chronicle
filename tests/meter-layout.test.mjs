@@ -7,7 +7,7 @@ const encounter={id:'enc',combatId:'c',name:'Combat Encounter',round:2,participa
  {id:'hit',type:'damage',resource:'hp',amount:17,sourceId:'a',targetId:'enemy',round:1},
  {id:'soak',type:'soak',resource:'soak',amount:8,sourceId:'a',targetId:'enemy',round:1}
 ]};
-globalThis.game={user:{isGM:true},combats:{active:{id:'c'}},settings:{get:(mod,key)=>key==='groupSummons'?true:false},combatChronicle:{recorder:{records:new Map([['c',enc]])}}};
+globalThis.game={user:{isGM:true},combats:{active:{id:'c'}},settings:{get:(mod,key)=>key==='groupSummons'?true:false},combatChronicle:{recorder:{records:new Map([['c',encounter]])}}};
 const {LiveMeter}=await import('../scripts/ui/windows.mjs');
 test('live meter preserves full long name and renders bar below the header button',async()=>{
  const html=await new LiveMeter().html();

@@ -1,4 +1,4 @@
-# Combat Chronicle — v0.2.8 Development Build
+# Combat Chronicle — v0.2.9 Development Build
 
 **Foundry VTT 13.351 • Pathfinder 1e system 11.11**
 
@@ -16,20 +16,20 @@ Pushing source to the main branch automatically builds and publishes a versioned
 
 ## Manual local installation
 
-1. Download `Combat-Chronicle-v0.2.8.zip` and extract its single `combat-chronicle` directory.
+1. Download `Combat-Chronicle-v0.2.9.zip` and extract its single `combat-chronicle` directory.
 2. Place that directory into your Foundry `Data/modules/` directory.
 3. Restart Foundry and open a **backup/test world** using PF1e 11.11.
 4. Enable **Combat Chronicle** in Manage Modules. Enable Armor Soak Pool 1.1.1 and Nevela's Automation Suite in your test world.
 5. Start a test combat. The floating meter should appear, and combat tracker should provide **Meter** and **Chronicle** reopen buttons.
 
-## Live meter readability (v0.2.8)
+## Live meter readability (v0.2.9)
 
 - Character portraits are now 40 × 40 pixels instead of 20 × 20.
 - Character names wrap naturally next to their icons and can also be read by hovering the name.
 - The Effective/Pressure columns retain dedicated space, while the segmented damage bar renders in its own row below all name and number text.
 - The default meter width increases slightly; previously saved window positions and sizes remain user-controlled.
 
-## New in v0.2.8
+## New in v0.2.9
 
 - Red outlines around every unresolved attribution event in Corrections.
 - Ranking dropdowns for kills, critical attack rolls, healing and largest single hit; kills and crit rolls selectable in meter.

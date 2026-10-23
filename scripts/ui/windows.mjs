@@ -26,7 +26,7 @@ function ranked(rec,{scope='total',sort='pressure',allies=true}={}){
 function meterRows(rows,sort,expanded){const max=Math.max(1,...rows.map(p=>p.pressure||0));return rows.map((p,i)=>{
  const main=Math.max(0,100*(p.effective||0)/max),soak=Math.max(0,100*(p.soak||0)/max);
  const sub=expanded.has(p.id)?`<div class="cc-expand"><div>Vigor <b>${fmt(p.vigor)}</b> · Wounds <b>${fmt(p.wounds)}</b> · HP <b>${fmt(p.hp)}</b> · Soak dealt <b>${fmt(p.soak)}</b> · Soak received <b>${fmt(p.soakTaken)}</b> · Healing <b>${fmt(p.healing)}</b> · Kills <b>${fmt(p.kills)}</b></div><div>${Object.entries(p.items||{}).map(([k,v])=>`${esc(k)}: ${fmt(v)}`).join(' • ')||'No verified item attribution recorded'}</div>${Object.values(p.minions||{}).map(m=>`<div>${esc(m.name)}: ${fmt(m.effective)} effective / ${fmt(m.pressure)} pressure</div>`).join('')}</div>`:'';
- return `<div class="cc-meter-row"><button class="cc-row-head" data-action="expand" data-id="${esc(p.id)}"><span class="cc-name">${p.img?`<img class="cc-avatar" src="${esc(p.img)}" alt="">`:``}${i+1}. ${esc(p.name)}</span><span class="cc-val">${fmt(p.effective)}</span><span class="cc-val emph">${fmt(p.pressure)}</span></button><div class="cc-bars"><span class="cc-health" style="width:${main.toFixed(2)}%"></span><span class="cc-soak" style="width:${soak.toFixed(2)}%"></span></div>${sub}</div>`;
+ return `<div class="cc-meter-row"><button class="cc-row-head" data-action="expand" data-id="${esc(p.id)}"><span class="cc-name" title="${esc(p.name)}">${p.img?`<img class="cc-avatar" src="${esc(p.img)}" alt="">`:``}<span class="cc-name-text"><span class="cc-rank">${i+1}.</span> ${esc(p.name)}</span></span><span class="cc-val">${fmt(p.effective)}</span><span class="cc-val emph">${fmt(p.pressure)}</span></button><div class="cc-bars"><span class="cc-health" style="width:${main.toFixed(2)}%"></span><span class="cc-soak" style="width:${soak.toFixed(2)}%"></span></div>${sub}</div>`;
  }).join('')||'<p class="cc-muted">No attributed allied damage yet. Check the Corrections tab for unattributed events.</p>';
 }
 class WindowBase extends App{
@@ -40,7 +40,7 @@ class WindowBase extends App{
  refresh(){if(this.rendered)this.render({force:true}).catch(console.error)}
 }
 export class LiveMeter extends WindowBase{
- static DEFAULT_OPTIONS={id:'combat-chronicle-live',classes:['combat-chronicle','cc-live'],window:{title:'Combat Chronicle • Live',resizable:true,minimizable:true},position:{width:470,height:470}};
+ static DEFAULT_OPTIONS={id:'combat-chronicle-live',classes:['combat-chronicle','cc-live'],window:{title:'Combat Chronicle • Live',resizable:true,minimizable:true},position:{width:510,height:480}};
  constructor(...a){super(...a);this.sort='pressure';this.scope='total';this.expanded=new Set()}
  async html(){const rec=current();if(!rec)return `<div class="cc-shell"><p>There is no active combat.</p>${btn('Open Combat Archive','dashboard')}</div>`;
  const rows=ranked(rec,{scope:this.scope,sort:this.sort});return `<div class="cc-shell cc-meter"><div class="cc-topline"><span class="cc-live-indicator">● LIVE</span><span>Round ${fmt(rec.round)} • ${esc(rec.name)}</span></div><div class="cc-toolbar">

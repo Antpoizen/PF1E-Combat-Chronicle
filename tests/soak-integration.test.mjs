@@ -38,7 +38,7 @@ const setup=()=>{
  return {rec,events};
 };
 test('two identical soak hits separated by a refill both count',async()=>{
- globalThis.game={settings:{get:()=>false}};
+ globalThis.game={user:{id:'gm',isGM:true},users:[{id:'gm',isGM:true,active:true}],settings:{get:()=>false}};
  const {rec,events}=setup();
  actor.flags['armor-soak-pool'].current=5;
  rec.handleHealth(actor,{},{});
@@ -60,7 +60,7 @@ test('two identical soak hits separated by a refill both count',async()=>{
  assert.equal(totals.m.soakTaken,10);
 });
 test('when native hook is unavailable, flag delta is recorded provisionally',async()=>{
- globalThis.game={settings:{get:()=>false}};
+ globalThis.game={user:{id:'gm',isGM:true},users:[{id:'gm',isGM:true,active:true}],settings:{get:()=>false}};
  const {rec,events}=setup();
  actor.flags['armor-soak-pool'].current=7;
  rec.handleHealth(actor,{},{});

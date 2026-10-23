@@ -1,7 +1,7 @@
 import {MOD,authority,setting,combatStarted,participantsOf,selectTarget,now,uid,log,warn} from './utils.mjs';
 import {makeEvent,leaders,isAwardEligible} from '../analytics/model.mjs';
 import {readHealth,changesBetween,playerWoundState} from '../adapters/health.mjs';
-import {saveOutcomeFromRoll,criticalOutcomeFromRoll} from '../adapters/rolls.mjs';
+import {saveOutcomeFromRoll,criticalOutcomeFromRoll,itemFromMessage} from '../adapters/rolls.mjs';
 import {installSoakHooks} from '../adapters/soak.mjs';
 import {playerProjection} from '../services/privacy.mjs';
 import {createRecord,findByCombat,loadRecord,appendEvents,saveMetadata,listIndexes} from './store.mjs';
@@ -35,16 +35,17 @@ export class ChronicleRecorder {
  resolveEvidence(options,actor,combat){
   // Only explicit per-update provenance can automatically establish a source.
   const cc=options?.combatChronicle||options?.chronicle||{};
+  const msg=typeof options?.message==='string'?game.messages?.get(options.message):options?.message;
+  const verifiedItem=cc.itemName||itemFromMessage(msg,combat)||null;
   const sourceId=cc.sourceId||null;
   const source=sourceId?combat.combatants.get(sourceId):null;
-  if(source)return {sourceId:source.id,sourceName:source.name,confidence:'confirmed',itemName:cc.itemName||null,messageId:cc.messageId||null};
-  const msg=typeof options?.message==='string'?game.messages?.get(options.message):options?.message;
+  if(source)return {sourceId:source.id,sourceName:source.name,confidence:'confirmed',itemName:verifiedItem,messageId:cc.messageId||msg?.id||null};
   const speaker=msg?.speaker;
   if(speaker?.actor){const matches=Array.from(combat.combatants).filter(c=>c.actorId===speaker.actor&&(!speaker.token||speaker.token===c.tokenId));
-   if(matches.length===1)return {sourceId:matches[0].id,sourceName:matches[0].name,confidence:'confirmed',itemName:null,messageId:msg.id||null};}
+   if(matches.length===1)return {sourceId:matches[0].id,sourceName:matches[0].name,confidence:'confirmed',itemName:verifiedItem,messageId:msg.id||null};}
   const uuid=cc.sourceActorUuid||cc.originActorUuid||null;
   if(uuid){const matches=Array.from(combat.combatants).filter(c=>c.actor?.uuid===uuid);
-   if(matches.length===1)return {sourceId:matches[0].id,sourceName:matches[0].name,confidence:'confirmed',itemName:cc.itemName||null,messageId:cc.messageId||null};}
+   if(matches.length===1)return {sourceId:matches[0].id,sourceName:matches[0].name,confidence:'confirmed',itemName:verifiedItem,messageId:cc.messageId||msg?.id||null};}
   const contextual=this.pendingOrigins.get(actor.uuid);
   if(contextual && Date.now()-contextual.at<2000)return {...contextual,confidence:'strongly-correlated'};
   return {sourceId:null,sourceName:'Unattributed',confidence:'unattributed',itemName:null,messageId:null};
@@ -115,7 +116,7 @@ export class ChronicleRecorder {
   const matches=Array.from(combat.combatants).filter(c=>c.actorId===speaker.actor&&(!speaker.token||c.tokenId===speaker.token));
   if(matches.length!==1)return;
   this.pendingOrigins.set(actor.uuid,{at:Date.now(),sourceId:matches[0].id,sourceName:matches[0].name,
-    itemName:null,messageId:msg.id||null});
+    itemName:itemFromMessage(msg,combat),messageId:msg.id||null});
  }
  handleSoak(actor,event){const combat=this.combatForActor(actor);if(!combat||!authority())return;
   const target=selectTarget(combat,actor),source=this.resolveEvidence({},actor,combat);if(!target)return;
@@ -141,6 +142,13 @@ export class ChronicleRecorder {
   if(speaker.length!==1)return;
   const natural=[];for(const roll of message.rolls){for(const term of roll.terms||[])if(Array.isArray(term.results)&&Number(term.faces)===20)for(const r of term.results)if(Number.isFinite(r.result))natural.push(r.result)}
   const hidden=!!(message.blind||message.whisper?.length);const src=speaker[0];
+  const critical=criticalOutcomeFromRoll(message);
+  const attackEvidence=/attack|critical|crit threat/i.test(String(message.flavor||'')+' '+String(message.flags?.pf1?.context?.type||''));
+  if(critical&&attackEvidence)this.enqueue(()=>this.add(combat,[{
+    type:'criticalRoll',resource:'attack',amount:1,critical:true,natural:critical.natural,reason:critical.reason,
+    sourceId:src.id,sourceName:src.name,confidence:'confirmed',messageId:message.id,
+    eventKey:`criticalRoll:${combat.id}:${message.id}:${src.id}`,visibility:'gm'
+  }]));
   this.enqueue(()=>this.add(combat,[{type:'roll',sourceId:src.id,sourceName:src.name,messageId:message.id,
     natural:natural.length===1?natural[0]:null,evidence:{rollTotals:message.rolls.map(r=>r.total),naturalD20:natural},visibility:hidden?'private':'gm',confidence:'confirmed',eventKey:`roll:${message.id}`} ]));
  }
@@ -157,10 +165,11 @@ export class ChronicleRecorder {
    eventKey:message?.id?`failedSave:${combat.id}:${message.id}:${target.id}`:null}]));
  }
  recordCriticalRoll(actor,message){
-  if(!authority()||!criticalOutcomeFromRoll(message))return;
+  if(!authority())return;
+  const critical=criticalOutcomeFromRoll(message);if(!critical)return;
   const combat=this.combatForActor(actor),source=selectTarget(combat,actor);
   if(!combat||!source)return;
-  this.enqueue(()=>this.add(combat,[{type:'criticalRoll',resource:'attack',amount:1,natural:20,
+  this.enqueue(()=>this.add(combat,[{type:'criticalRoll',resource:'attack',amount:1,critical:true,natural:critical.natural,reason:critical.reason,
    sourceId:source.id,sourceName:source.name,confidence:'confirmed',visibility:'gm',
    eventKey:message?.id?`criticalRoll:${combat.id}:${message.id}:${source.id}`:null}]));
  }

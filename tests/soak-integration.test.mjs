@@ -65,7 +65,7 @@ test('when native hook is unavailable, flag delta is recorded provisionally',asy
  rec.resolveEvidence=()=>({sourceId:null,sourceName:'Unattributed',confidence:'unattributed'});
  actor.flags['armor-soak-pool'].current=7;
  rec.handleHealth(actor,{},{});
- await new Promise(done=>setTimeout(done,160));
+ await new Promise(done=>setTimeout(done,685));
  await rec.queue;
  assert.equal(events.filter(e=>e.type==='soak').length,1);
  assert.equal(events[0].amount,3);

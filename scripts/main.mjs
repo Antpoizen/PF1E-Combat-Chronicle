@@ -37,7 +37,6 @@ Hooks.once('ready',async()=>{
  const active=currentEncounter();
  if(active&&combatStarted(active)){
   if(setting('autoOpen',true)&&setting('lastCombatOpened','')!==active.id)recorder.onCombatStartedUI(active);
-  if(!game.user.isGM)recorder.requestProjection();
  }
  if(!game.user.isGM&&setting('allowPlayers',true))recorder.requestProjection();
  console.info(`Combat Chronicle 0.3.4 | GM recorder ${authority()?'active':'passive'}; armor soak ${soakAvailable()?'present':'not detected'}`);

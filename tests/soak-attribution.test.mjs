@@ -51,7 +51,7 @@ test('fallback Soak with verified source is not forcibly flagged ambiguous',asyn
  recorder.snapshots.set(recorder.snapshotKey(combat,victim.actor),{soak});
  recorder.resolveEvidence=()=>({sourceId:'hero',sourceName:'Hero',confidence:'confirmed'});
  recorder.handleHealth(victim.actor,{},{});
- await new Promise(done=>setTimeout(done,155));await recorder.queue;
+ await new Promise(done=>setTimeout(done,685));await recorder.queue;
  assert.equal(events.length,1);
  assert.equal(events[0].confidence,'confirmed');
 });

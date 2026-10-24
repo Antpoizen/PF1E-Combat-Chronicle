@@ -100,7 +100,7 @@ export class ChronicleRecorder {
         amountVerifiedBy:'actor-flag-change',reasonVerified:false,
         note:'The Armor Soak Pool native hook was not visible to this GM. Negative flag deltas may also reflect manual adjustments.'}
       }]));
-    },125);
+    },600);
     this.pendingSoak.set(signature,{timeout,eventKey});
    }
   }
@@ -279,13 +279,15 @@ export class ChronicleRecorder {
   }
  }
 
- observeChat(message){if(!authority()||!message.rolls?.length)return;
+ observeChat(message){if(!authority())return;
   const matches=Array.from(game.combats||[]).filter(c=>combatStarted(c)&&Array.from(c.combatants).some(p=>p.actorId===message.speaker?.actor));
   if(matches.length!==1)return;const combat=matches[0];const speaker=Array.from(combat.combatants).filter(c=>c.actorId===message.speaker.actor&&(!message.speaker.token||c.tokenId===message.speaker.token));
   if(speaker.length!==1)return;
-  const natural=[];for(const roll of message.rolls){for(const term of roll.terms||[])if(Array.isArray(term.results)&&Number(term.faces)===20)for(const r of term.results)if(Number.isFinite(r.result))natural.push(r.result)}
-  const hidden=!!(message.blind||message.whisper?.length);const src=speaker[0];
+  const src=speaker[0];
   this.rememberTargetedAttack(combat,message,src);
+  if(!message.rolls?.length)return;
+  const natural=[];for(const roll of message.rolls){for(const term of roll.terms||[])if(Array.isArray(term.results)&&Number(term.faces)===20)for(const r of term.results)if(Number.isFinite(r.result))natural.push(r.result)}
+  const hidden=!!(message.blind||message.whisper?.length);
   const critical=criticalOutcomeFromRoll(message);
   const attackEvidence=/attack|critical|crit threat/i.test(String(message.flavor||'')+' '+String(message.flags?.pf1?.context?.type||''));
   if(critical&&attackEvidence)this.enqueue(()=>this.add(combat,[{
@@ -350,6 +352,12 @@ export class ChronicleRecorder {
   Hooks.on('pf1ActorRollAttack',(actor,message)=>this.recordCriticalRoll(actor,message));
   game.socket.on(`module.${MOD}`,(message,senderId)=>{
    if(!message||typeof message!=='object')return;
+   // Where Foundry exposes the authenticated relay sender, reject mismatched
+   // claims and ignore projection/revocation from a non-GM sender.
+   if(senderId&&message.userId&&senderId!==message.userId)return;
+   const sender=senderId?game.users?.get?.(senderId):null;
+   if(sender&&['state','revoke'].includes(message.kind)&&!sender.isGM)return;
+   if(sender&&['soak-observed','source-context'].includes(message.kind)&&sender.isGM)return;
    if(message.kind==='source-context'&&authority())this.receiveDamageContext(message);
    if(message.kind==='soak-observed'&&authority())this.receiveSoakObservation(message);
    if(message.kind==='state'&&!game.user.isGM&&setting('allowPlayers',true)){this.latest=message.projection;this.onRefresh();}

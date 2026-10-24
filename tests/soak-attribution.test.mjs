@@ -55,3 +55,20 @@ test('fallback Soak with verified source is not forcibly flagged ambiguous',asyn
  assert.equal(events.length,1);
  assert.equal(events[0].confidence,'confirmed');
 });
+
+test('direct action context takes precedence over older target correlation',()=>{
+ const {recorder}=setup();
+ recorder.recentHealthSources.set('Actor.b',{at:Date.now(),combatId:'combat1',used:false,
+  source:{sourceId:'oldSource',sourceName:'Old Attacker'}});
+ recorder.pendingOrigins.set('Actor.b',{at:Date.now(),sourceId:'hero',sourceName:'Hero',itemName:'Magic Missile'});
+ const source=recorder.resolveSoakEvidence(victim.actor,combat);
+ assert.equal(source.sourceId,'hero');
+ assert.equal(source.itemName,'Magic Missile');
+});
+test('normal health attribution never consumes an earlier Soak-linked source',()=>{
+ const {recorder}=setup();
+ recorder.recentHealthSources.set('Actor.b',{at:Date.now(),combatId:'combat1',used:false,
+  source:{sourceId:'hero',sourceName:'Hero'}});
+ const source=recorder.resolveEvidence({},victim.actor,combat);
+ assert.equal(source.sourceId,null);
+});

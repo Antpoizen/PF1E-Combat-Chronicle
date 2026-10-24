@@ -46,27 +46,32 @@ export class ChronicleRecorder {
   const uuid=cc.sourceActorUuid||cc.originActorUuid||null;
   if(uuid){const matches=Array.from(combat.combatants).filter(c=>c.actor?.uuid===uuid);
    if(matches.length===1)return {sourceId:matches[0].id,sourceName:matches[0].name,confidence:'confirmed',itemName:verifiedItem,messageId:cc.messageId||msg?.id||null};}
-  // A damage application on the same target with verified provenance can
-  // identify Soak consumed by that application. This cannot rely on turn order.
+  const contextual=this.pendingOrigins.get(actor.uuid);
+  if(contextual && Date.now()-contextual.at<2000)return {...contextual,confidence:'strongly-correlated'};
+  return {sourceId:null,sourceName:'Unattributed',confidence:'unattributed',itemName:null,messageId:null};
+ }
+
+ /** Attribute Soak using verified action context first, then same-target
+  * health damage or explicitly targeted attack messages. It never uses turn
+  * order. Do not call this for unrelated resource updates. */
+ resolveSoakEvidence(actor,combat,options={}){
+  const direct=this.resolveEvidence(options,actor,combat);
+  if(direct.sourceId)return direct;
   const linked=this.recentHealthSources.get(actor.uuid);
   if(linked&&linked.combatId===combat.id&&Date.now()-linked.at<=400&&!linked.used){
    linked.used=true;
    return {...linked.source,confidence:'strongly-correlated'};
   }
-  // For Soak-only attacks there may be no HP/Vigor/Wounds update. Use a chat
-  // roll only when its structured targets explicitly identify THIS actor.
-  const targeted=(this.recentTargetMessages.get(actor.uuid)||[]).filter(x=>
-    x.combatId===combat.id&&Date.now()-x.at<=3500);
-  const distinct=new Set(targeted.map(x=>x.sourceId));
-  if(distinct.size===1&&targeted.length){
-   const last=targeted.at(-1);
+  const messages=(this.recentTargetMessages.get(actor.uuid)||[]).filter(m=>
+    m.combatId===combat.id&&Date.now()-m.at<=3500);
+  if(messages.length&&new Set(messages.map(m=>m.sourceId)).size===1){
+   const last=messages.at(-1);
    return {sourceId:last.sourceId,sourceName:last.sourceName,itemName:last.itemName,
     messageId:last.messageId,confidence:'strongly-correlated'};
   }
-  const contextual=this.pendingOrigins.get(actor.uuid);
-  if(contextual && Date.now()-contextual.at<2000)return {...contextual,confidence:'strongly-correlated'};
-  return {sourceId:null,sourceName:'Unattributed',confidence:'unattributed',itemName:null,messageId:null};
+  return direct;
  }
+
  handleHealth(actor,changes,options={}){
   const combat=this.combatForActor(actor);if(!combat)return;
   const key=this.snapshotKey(combat,actor),before=this.snapshots.get(key),after=readHealth(actor);
@@ -82,7 +87,7 @@ export class ChronicleRecorder {
       if(this.pendingSoak.get(signature)?.eventKey!==eventKey)return;
       this.pendingSoak.delete(signature);
       const target=selectTarget(combat,actor);if(!target)return;
-      const source=this.resolveEvidence(options,actor,combat);
+      const source=this.resolveSoakEvidence(actor,combat,options);
       this.enqueue(()=>this.add(combat,[{
        type:delta<0?'soak':'refill',resource:'soak',amount:Math.abs(delta),delta,
        targetId:target.id,targetName:target.name,...source,
@@ -144,7 +149,7 @@ export class ChronicleRecorder {
     itemName:itemFromMessage(msg,combat),messageId:msg.id||null});
  }
  handleSoak(actor,event){const combat=this.combatForActor(actor);if(!combat||!authority())return;
-  const target=selectTarget(combat,actor),source=this.resolveEvidence({},actor,combat);if(!target)return;
+  const target=selectTarget(combat,actor),source=this.resolveSoakEvidence(actor,combat);if(!target)return;
   const old=event.evidence?.old,latest=event.evidence?.new;
   const signature=(Number.isFinite(old)&&Number.isFinite(latest))?`soakdelta:${combat.id}:${actor.uuid}:${old}:${latest}:${combat.round}:${combat.turn}`:null;
   const pending=signature?this.pendingSoak.get(signature):null;
@@ -160,7 +165,7 @@ export class ChronicleRecorder {
   if(event.type==='soak'&&!source.sourceId){
    // The hook often precedes the later HP actor update. Give it a short window
    // to receive source evidence from the same target, without guessing.
-   setTimeout(()=>commit(this.resolveEvidence({},actor,combat)),250);
+   setTimeout(()=>commit(this.resolveSoakEvidence(actor,combat)),250);
   }else commit(source);
  }
  async updateCombat(combat,changed){if(!authority())return;

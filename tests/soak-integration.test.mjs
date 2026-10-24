@@ -62,6 +62,7 @@ test('two identical soak hits separated by a refill both count',async()=>{
 test('when native hook is unavailable, flag delta is recorded provisionally',async()=>{
  globalThis.game={user:{id:'gm',isGM:true},users:[{id:'gm',isGM:true,active:true}],settings:{get:()=>false}};
  const {rec,events}=setup();
+ rec.resolveEvidence=()=>({sourceId:null,sourceName:'Unattributed',confidence:'unattributed'});
  actor.flags['armor-soak-pool'].current=7;
  rec.handleHealth(actor,{},{});
  await new Promise(done=>setTimeout(done,160));

@@ -1,4 +1,4 @@
-# Combat Chronicle — v0.3.4 Development Build
+# Combat Chronicle — v0.3.5 Development Build
 
 **Foundry VTT 13.351 • Pathfinder 1e system 11.11**
 
@@ -16,20 +16,20 @@ Pushing source to the main branch automatically builds and publishes a versioned
 
 ## Manual local installation
 
-1. Download `Combat-Chronicle-v0.3.4.zip` and extract its single `combat-chronicle` directory.
+1. Download `Combat-Chronicle-v0.3.5.zip` and extract its single `combat-chronicle` directory.
 2. Place that directory into your Foundry `Data/modules/` directory.
 3. Restart Foundry and open a **backup/test world** using PF1e 11.11.
 4. Enable **Combat Chronicle** in Manage Modules. Enable Armor Soak Pool 1.1.1 and Nevela's Automation Suite in your test world.
 5. Start a test combat. The floating meter should appear, and combat tracker should provide **Meter** and **Chronicle** reopen buttons.
 
-## Live meter readability (v0.3.4)
+## Live meter readability (v0.3.5)
 
 - Character portraits are now 40 × 40 pixels instead of 20 × 20.
 - Character names wrap naturally next to their icons and can also be read by hovering the name.
 - The Effective/Pressure columns retain dedicated space, while the segmented damage bar renders in its own row below all name and number text.
 - The default meter width increases slightly; previously saved window positions and sizes remain user-controlled.
 
-## New in v0.3.4
+## New in v0.3.5
 
 - Red outlines around every unresolved attribution event in Corrections.
 - Ranking dropdowns for kills, critical attack rolls, healing and largest single hit; kills and crit rolls selectable in meter.
@@ -39,20 +39,20 @@ Pushing source to the main branch automatically builds and publishes a versioned
 - Failed saving throws tracked when an explicit PF1e save DC and roll result are present. Control +1 goes to the source when reliably attributed or manually corrected.
 - PC Wounds/Vigor downed at 0 or less Vigor and negative Wounds; dead at negative Wounds equal to Constitution.
 
-## v0.3.4 fixes
+## v0.3.5 fixes
 - Critical attack roll recognition now accepts an explicit critical threat or confirmation indicator, including lower-than-20 threat ranges, in addition to natural 20 attack rolls. Avoids assuming all natural 19 rolls threaten.
 - The largest single hit is visible directly after Kills and Crit rolls on every combatant row.
 - Damage from source-linked weapon and spell item metadata is automatically grouped under the item name when a reliable message association exists. The GM can label specific damage or soak events via **Set Ability** in Corrections when automation does not expose that link.
 - The Impact tab provides a one-click **+1 Control** button for player characters. The Corrections manual-event form can record additional Control events, and adjustments persist as part of the event archive.
 - Existing damage events are not relabeled by guessing from nearby chat activity. Old events can be corrected without replaying combat.
 
-## v0.3.4 Soak attribution repair
+## v0.3.5 Soak attribution repair
 - Fixed a fallback error that set every Soak reduction to "ambiguous" even when a source was verified. Verified and strongly correlated attacker evidence now stays credited.
 - Native Soak hook events wait briefly for a linked HP/Vigor/Wounds actor update if their source is initially missing. A source is accepted only from a verified same-target health-damage action or a chat roll explicitly listing the damaged actor as a target.
 - Soak-only attacks can also be attributed when PF1e/Nevela provides explicit target IDs in the source chat card. If there is no reliable attacker identifier, the amount remains in Corrections: Armor Soak Pool's hook does not include the attacker.
 - Manual Soak adjustments are no longer incorrectly flagged as "Needs attribution". Confirmed refills and capacity changes remain excluded from offensive pressure.
 
-## v0.3.4 — player sync and cross-client Soak fix
+## v0.3.5 — player sync and cross-client Soak fix
 
 - **Enabled Foundry's module socket in `module.json`.** The previous manifest lacked `"socket":true`, preventing the GM from publishing player-facing live combat data. This also prevented player-generated Soak attribution from being relayed.
 - Player clients request a fresh, GM-sanitized combat projection on connection and offer **Reconnect to GM** when the live meter is waiting for state. When Foundry has no scene-active combat, the sole started encounter is used.

@@ -6,7 +6,7 @@ import {installSoakHooks} from '../adapters/soak.mjs';
 import {playerProjection} from '../services/privacy.mjs';
 import {createRecord,findByCombat,loadRecord,appendEvents,saveMetadata,listIndexes} from './store.mjs';
 export class ChronicleRecorder {
- constructor(){this.records=new Map();this.snapshots=new Map();this.conditions=new Map();this.queue=Promise.resolve();this.latest=null;this.recentMessages=[];this.pendingOrigins=new Map();this.pendingSoak=new Map();this.onRefresh=()=>{};this.lastPublished=null;this.lastCombatUI=null;}
+ constructor(){this.records=new Map();this.snapshots=new Map();this.conditions=new Map();this.queue=Promise.resolve();this.latest=null;this.recentMessages=[];this.pendingOrigins=new Map();this.pendingSoak=new Map();this.recentTargetMessages=new Map();this.recentHealthSources=new Map();this.onRefresh=()=>{};this.lastPublished=null;this.lastCombatUI=null;}
  enqueue(fn){const promise=this.queue.then(fn);this.queue=promise.catch(error=>{console.error('Combat Chronicle | operation failed',error)});return promise;}
  combatForActor(actor){if(!actor)return null;const matches=Array.from(game.combats||[]).filter(c=>combatStarted(c)&&selectTarget(c,actor));return matches.length===1?matches[0]:null;}
  snapshotKey(combat,actor){return `${combat.id}:${actor.uuid}`;}
@@ -46,6 +46,23 @@ export class ChronicleRecorder {
   const uuid=cc.sourceActorUuid||cc.originActorUuid||null;
   if(uuid){const matches=Array.from(combat.combatants).filter(c=>c.actor?.uuid===uuid);
    if(matches.length===1)return {sourceId:matches[0].id,sourceName:matches[0].name,confidence:'confirmed',itemName:verifiedItem,messageId:cc.messageId||msg?.id||null};}
+  // A damage application on the same target with verified provenance can
+  // identify Soak consumed by that application. This cannot rely on turn order.
+  const linked=this.recentHealthSources.get(actor.uuid);
+  if(linked&&linked.combatId===combat.id&&Date.now()-linked.at<=400&&!linked.used){
+   linked.used=true;
+   return {...linked.source,confidence:'strongly-correlated'};
+  }
+  // For Soak-only attacks there may be no HP/Vigor/Wounds update. Use a chat
+  // roll only when its structured targets explicitly identify THIS actor.
+  const targeted=(this.recentTargetMessages.get(actor.uuid)||[]).filter(x=>
+    x.combatId===combat.id&&Date.now()-x.at<=3500);
+  const distinct=new Set(targeted.map(x=>x.sourceId));
+  if(distinct.size===1&&targeted.length){
+   const last=targeted.at(-1);
+   return {sourceId:last.sourceId,sourceName:last.sourceName,itemName:last.itemName,
+    messageId:last.messageId,confidence:'strongly-correlated'};
+  }
   const contextual=this.pendingOrigins.get(actor.uuid);
   if(contextual && Date.now()-contextual.at<2000)return {...contextual,confidence:'strongly-correlated'};
   return {sourceId:null,sourceName:'Unattributed',confidence:'unattributed',itemName:null,messageId:null};
@@ -68,7 +85,8 @@ export class ChronicleRecorder {
       const source=this.resolveEvidence(options,actor,combat);
       this.enqueue(()=>this.add(combat,[{
        type:delta<0?'soak':'refill',resource:'soak',amount:Math.abs(delta),delta,
-       targetId:target.id,targetName:target.name,...source,confidence:delta<0?'ambiguous':'confirmed',
+       targetId:target.id,targetName:target.name,...source,
+       confidence:delta<0?(source.sourceId?source.confidence:'ambiguous'):'confirmed',
        eventKey,evidence:{integration:'soak-flag-fallback',old:before.soak,new:after.soak,
         amountVerifiedBy:'actor-flag-change',reasonVerified:false,
         note:'The Armor Soak Pool native hook was not visible to this GM. Negative flag deltas may also reflect manual adjustments.'}
@@ -91,6 +109,13 @@ export class ChronicleRecorder {
   if(!effects.length)return;
   const target=selectTarget(combat,actor),source=this.resolveEvidence(options,actor,combat);
   if(!target)return;
+  // Cache only a real resource-loss source; never infer the attacker from the
+  // combat turn. The matching Soak event may reach the GM a moment later.
+  if(source.sourceId&&effects.some(e=>e.type==='damage'&&e.amount>0)){
+   this.recentHealthSources.set(actor.uuid,{at:Date.now(),combatId:combat.id,
+     source:{sourceId:source.sourceId,sourceName:source.sourceName,
+      itemName:source.itemName||null,messageId:source.messageId||null},used:false});
+  }
   const batchId=uid();const entries=effects.map((change,i)=>({id:uid(),...change,...source,targetId:target.id,targetName:target.name,
    actionId:options?.combatChronicle?.actionId||batchId,
    eventKey:options?.combatChronicle?.actionId?`health:${options.combatChronicle.actionId}:${target.id}:${change.resource}:${i}`:null,
@@ -127,8 +152,16 @@ export class ChronicleRecorder {
   // Prefer the native Armor Soak Pool DAMAGE_APPLIED hook's exact absorbed value.
   // Never infer health damage from its overflow field.
   const eventKey=pending?.eventKey||`soak-hook:${combat.id}:${actor.uuid}:${uid()}`;
-  this.enqueue(()=>this.add(combat,[{...event,targetId:target.id,targetName:target.name,...source,
-   eventKey,evidence:{...event.evidence,amountVerifiedBy:'armor-soak-pool-hook'}}]));
+  const commit=resolved=>this.enqueue(()=>this.add(combat,[{
+   ...event,targetId:target.id,targetName:target.name,...resolved,
+   eventKey,evidence:{...event.evidence,amountVerifiedBy:'armor-soak-pool-hook',
+    attribution:resolved.sourceId?'correlated-action':'pending-review'}
+  }]));
+  if(event.type==='soak'&&!source.sourceId){
+   // The hook often precedes the later HP actor update. Give it a short window
+   // to receive source evidence from the same target, without guessing.
+   setTimeout(()=>commit(this.resolveEvidence({},actor,combat)),250);
+  }else commit(source);
  }
  async updateCombat(combat,changed){if(!authority())return;
   if(combatStarted(combat)){
@@ -136,12 +169,45 @@ export class ChronicleRecorder {
    if(Object.hasOwn(changed,'round')||Object.hasOwn(changed,'turn'))await this.add(combat,[{type:'turn',confidence:'confirmed',sourceName:'System',eventKey:`turn:${combat.id}:${combat.round}:${combat.turn}`}]);
   }else if(this.records.has(combat.id))await this.closeCombat(combat);
  }
+
+ /**
+  * Recognize source only when an attack/damage roll explicitly includes
+  * structured target IDs matching combatants. Do not use player target cursors,
+  * current turn, or temporal proximity alone.
+  */
+ rememberTargetedAttack(combat,message,source){
+  const flag=message?.flags||{};
+  const groups=[flag.pf1?.targets,flag['nevelas-automation-suite']?.targets,
+    message?.actionSource?.targets,flag.pf1?.context?.targets].filter(Array.isArray);
+  const ids=new Set();
+  for(const group of groups)for(const entry of group){
+   if(typeof entry==='string'){ids.add(entry);continue;}
+   if(!entry||typeof entry!=='object')continue;
+   for(const key of ['id','tokenId','tokenUuid','uuid','actorId','actorUuid'])
+    if(typeof entry[key]==='string')ids.add(entry[key]);
+  }
+  if(!ids.size)return;
+  const itemName=itemFromMessage(message,combat);
+  const ts=Date.now();
+  for(const participant of combat.combatants||[]){
+   const actor=participant.actor;if(!actor||participant.id===source.id)continue;
+   const refs=[participant.id,participant.tokenId,participant.token?.id,participant.token?.uuid,
+     participant.actorId,actor.id,actor.uuid].filter(Boolean);
+   if(!refs.some(id=>ids.has(id)))continue;
+   const recent=(this.recentTargetMessages.get(actor.uuid)||[]).filter(x=>ts-x.at<=3500);
+   recent.push({at:ts,combatId:combat.id,sourceId:source.id,sourceName:source.name,
+     itemName,messageId:message.id||null});
+   this.recentTargetMessages.set(actor.uuid,recent.slice(-8));
+  }
+ }
+
  observeChat(message){if(!authority()||!message.rolls?.length)return;
   const matches=Array.from(game.combats||[]).filter(c=>combatStarted(c)&&Array.from(c.combatants).some(p=>p.actorId===message.speaker?.actor));
   if(matches.length!==1)return;const combat=matches[0];const speaker=Array.from(combat.combatants).filter(c=>c.actorId===message.speaker.actor&&(!message.speaker.token||c.tokenId===message.speaker.token));
   if(speaker.length!==1)return;
   const natural=[];for(const roll of message.rolls){for(const term of roll.terms||[])if(Array.isArray(term.results)&&Number(term.faces)===20)for(const r of term.results)if(Number.isFinite(r.result))natural.push(r.result)}
   const hidden=!!(message.blind||message.whisper?.length);const src=speaker[0];
+  this.rememberTargetedAttack(combat,message,src);
   const critical=criticalOutcomeFromRoll(message);
   const attackEvidence=/attack|critical|crit threat/i.test(String(message.flavor||'')+' '+String(message.flags?.pf1?.context?.type||''));
   if(critical&&attackEvidence)this.enqueue(()=>this.add(combat,[{

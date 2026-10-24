@@ -54,8 +54,11 @@ export class LiveMeter extends WindowBase{
  change(a,val){if(a==='scope')this.scope=val;else if(a==='meterSort')this.sort=val;else if(a==='meterExtra')this.extra=val;else return;this.refresh()}
 }
 // Flag missing or explicitly unresolved source attribution after GM corrections.
-export const needsAttribution = event =>
- !event?.sourceId || ['ambiguous', 'unattributed'].includes(String(event.confidence || '').toLowerCase());
+export const needsAttribution = event => {
+ // System changes have no attacker and must not be flagged as missing one.
+ if(['refill','capacity','adjustment'].includes(event?.type))return false;
+ return !event?.sourceId || ['ambiguous','unattributed'].includes(String(event.confidence||'').toLowerCase());
+};
 const TABS=['overview','combatants','charts','timeline','impact','corrections','awards','reports','archive'];
 function sectionTitle(title,sub=''){return `<h2>${esc(title)}</h2>${sub?`<p class="cc-muted">${esc(sub)}</p>`:''}`}
 function kpi(name,val){return `<div class="cc-kpi"><span>${esc(name)}</span><strong>${fmt(val)}</strong></div>`}

@@ -1,4 +1,4 @@
-import {MOD,esc,setting,number,dateKey} from '../core/utils.mjs';
+import {MOD,esc,setting,number,dateKey,currentEncounter} from '../core/utils.mjs';
 import {statistics,leaders,dailyAggregate,resolvedEvents,isAwardEligible,largestHit} from '../analytics/model.mjs';
 import {playerProjection} from '../services/privacy.mjs';
 import {reportText,csvStats,csvEvents,download} from '../services/export.mjs';
@@ -10,7 +10,7 @@ const btn=(label,action,value='',cls='')=>`<button class="${cls}" data-action="$
 const select=(key,value,options)=>`<select data-change="${key}">${options.map(([id,label])=>`<option value="${esc(id)}" ${id===value?'selected':''}>${esc(label)}</option>`).join('')}</select>`;
 let meterWindow=null,dashboardWindow=null;
 const chronicle=()=>game.combatChronicle;
-const current=()=>{const recorder=chronicle()?.recorder;const combat=game.combats?.active;
+const current=()=>{const recorder=chronicle()?.recorder;const combat=currentEncounter();
  return game.user.isGM?(combat&&recorder?.records?.get(combat.id))||null:recorder?.latest||null;};
 const shown=(record)=>game.user.isGM?record?.participants&&record?.events?statistics(record,{includeTemporary:setting('includeTemporary',false),groupSummons:setting('groupSummons',true)}):{}:record?.stats||{};
 const scaled=(p,scope,round,grouped)=>{
@@ -44,13 +44,13 @@ class WindowBase extends App{
 export class LiveMeter extends WindowBase{
  static DEFAULT_OPTIONS={id:'combat-chronicle-live',classes:['combat-chronicle','cc-live'],window:{title:'Combat Chronicle • Live',resizable:true,minimizable:true},position:{width:510,height:480}};
  constructor(...a){super(...a);this.sort='pressure';this.scope='total';this.extra='both';this.expanded=new Set()}
- async html(){const rec=current();if(!rec)return `<div class="cc-shell"><p>There is no active combat.</p>${btn('Open Combat Archive','dashboard')}</div>`;
+ async html(){const rec=current();if(!rec)return `<div class="cc-shell"><p>${!game.user.isGM&&setting('allowPlayers',true)?'Waiting for GM combat data.':'There is no active combat.'}</p>${!game.user.isGM?btn('Reconnect to GM','reconnect'):''}${btn('Open Combat Archive','dashboard')}</div>`;
  const rows=ranked(rec,{scope:this.scope,sort:this.sort});return `<div class="cc-shell cc-meter"><div class="cc-topline"><span class="cc-live-indicator">● LIVE</span><span>Round ${fmt(rec.round)} • ${esc(rec.name)}</span></div><div class="cc-toolbar">
  ${select('scope',this.scope,[['total','Encounter'],['round','Current round'],['dpr','Damage per round']])}${select('meterSort',this.sort,[['pressure','Rank: Pressure'],['effective','Rank: Effective'],['healing','Rank: Healing'],['kills','Rank: Kills'],['critRolls','Rank: Crit rolls'],['greatest','Rank: Largest hit']])}${select('meterExtra',this.extra,[['both','Show: Kills + Crits'],['kills','Show: Kills'],['crits','Show: Crit rolls'],['none','Show: Minimal']])}${btn('Analytics','dashboard')}</div>
  <div class="cc-columns"><span>Combatant</span><button data-action="sort" data-id="effective">Effective ${this.sort==='effective'?'▼':''}</button><button data-action="sort" data-id="pressure">Pressure ${this.sort==='pressure'?'▼':''}</button></div>
  <div class="cc-rows">${meterRows(rows,this.sort,this.expanded,this.extra)}</div><div class="cc-foot">Effective: Vigor + Wounds + HP<br>Pressure: Effective + absorbed Soak</div></div>`;}
  async _onClose(options){try{await game.settings.set(MOD,'meterPosition',JSON.stringify(this.position));}catch{}return super._onClose(options)}
- action(a,id){if(a==='sort'){this.sort=id;this.refresh()}else if(a==='expand'){this.expanded.has(id)?this.expanded.delete(id):this.expanded.add(id);this.refresh()}else if(a==='dashboard')openDashboard()}
+ action(a,id){if(a==='sort'){this.sort=id;this.refresh()}else if(a==='expand'){this.expanded.has(id)?this.expanded.delete(id):this.expanded.add(id);this.refresh()}else if(a==='dashboard')openDashboard();else if(a==='reconnect'){chronicle()?.recorder?.requestProjection();this.refresh()}}
  change(a,val){if(a==='scope')this.scope=val;else if(a==='meterSort')this.sort=val;else if(a==='meterExtra')this.extra=val;else return;this.refresh()}
 }
 // Flag missing or explicitly unresolved source attribution after GM corrections.

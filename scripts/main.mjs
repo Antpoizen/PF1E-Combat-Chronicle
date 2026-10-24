@@ -1,4 +1,4 @@
-import {MOD,authority,setting,warn,combatStarted} from './core/utils.mjs';
+import {MOD,authority,setting,warn,combatStarted,currentEncounter} from './core/utils.mjs';
 import {registerSettings} from './core/settings.mjs';
 import {ChronicleRecorder} from './core/recorder.mjs';
 import {openMeter,openDashboard,refreshWindows} from './ui/windows.mjs';
@@ -17,7 +17,7 @@ Hooks.once('init',()=>registerSettings());
 Hooks.once('ready',async()=>{
  if(game.system.id!=='pf1'){console.warn('Combat Chronicle is designed for Pathfinder 1e (pf1)');return;}
  recorder=new ChronicleRecorder();
- game.combatChronicle={recorder,openMeter,openDashboard,version:'0.3.3',
+ game.combatChronicle={recorder,openMeter,openDashboard,version:'0.3.4',
   status:()=>({authority:authority(),soak:soakAvailable(),nevela:nevelaStatus(),activeCombats:recorder.records.size}),
   // Explicit provenance helper for cooperating custom macros: supply these options on actor.update().
   attributionOptions:(combatantId,itemName='',messageId=null)=>({combatChronicle:{sourceId:combatantId,itemName,messageId}})
@@ -34,10 +34,11 @@ Hooks.once('ready',async()=>{
   else if(tokenGroup.tools&&!tokenGroup.tools[control.name])tokenGroup.tools[control.name]=control;
  });
  if(authority())recorder.enqueue(()=>recorder.resume());
- const active=game.combats?.active;
+ const active=currentEncounter();
  if(active&&combatStarted(active)){
   if(setting('autoOpen',true)&&setting('lastCombatOpened','')!==active.id)recorder.onCombatStartedUI(active);
-  if(!game.user.isGM)game.socket.emit(`module.${MOD}`,{kind:'request'});
+  if(!game.user.isGM)recorder.requestProjection();
  }
- console.info(`Combat Chronicle 0.3.3 | GM recorder ${authority()?'active':'passive'}; armor soak ${soakAvailable()?'present':'not detected'}`);
+ if(!game.user.isGM&&setting('allowPlayers',true))recorder.requestProjection();
+ console.info(`Combat Chronicle 0.3.4 | GM recorder ${authority()?'active':'passive'}; armor soak ${soakAvailable()?'present':'not detected'}`);
 });

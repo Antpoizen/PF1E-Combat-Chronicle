@@ -17,6 +17,14 @@ export const warn=(...args)=>console.warn('Combat Chronicle |',...args);
 export const activeGM=()=>game.users?.filter(u=>u.active&&u.isGM).sort((a,b)=>a.id.localeCompare(b.id))[0]||null;
 export const authority=()=>Boolean(game.user?.isGM && activeGM()?.id===game.user.id);
 export const combatStarted=c=>Boolean(c && (c.started || Number(c.round)>0));
+/** Scene-relative "active" can be absent for players; a unique started
+ * encounter is still a valid source of the GM live projection. */
+export function currentEncounter(){
+ const preferred=game.combats?.active;
+ if(combatStarted(preferred))return preferred;
+ const running=Array.from(game.combats||[]).filter(combatStarted);
+ return running.length===1?running[0]:null;
+}
 export const participantsOf=combat=>Object.fromEntries(Array.from(combat?.combatants||[],c=>[c.id,{
   id:c.id,actorId:c.actorId??c.actor?.id??null, actorUuid:c.actor?.uuid||null,
   tokenId:c.tokenId||null,tokenUuid:c.token?.uuid||null,name:c.name||c.actor?.name||'Unknown',

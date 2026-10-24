@@ -1,4 +1,4 @@
-import {MOD,authority,setting,combatStarted,participantsOf,selectTarget,now,uid,log,warn} from './utils.mjs';
+import {MOD,authority,setting,combatStarted,currentEncounter,participantsOf,selectTarget,now,uid,log,warn} from './utils.mjs';
 import {makeEvent,leaders,isAwardEligible} from '../analytics/model.mjs';
 import {readHealth,changesBetween,playerWoundState} from '../adapters/health.mjs';
 import {saveOutcomeFromRoll,criticalOutcomeFromRoll,itemFromMessage} from '../adapters/rolls.mjs';
@@ -6,7 +6,7 @@ import {installSoakHooks} from '../adapters/soak.mjs';
 import {playerProjection} from '../services/privacy.mjs';
 import {createRecord,findByCombat,loadRecord,appendEvents,saveMetadata,listIndexes} from './store.mjs';
 export class ChronicleRecorder {
- constructor(){this.records=new Map();this.snapshots=new Map();this.conditions=new Map();this.queue=Promise.resolve();this.latest=null;this.recentMessages=[];this.pendingOrigins=new Map();this.pendingSoak=new Map();this.recentTargetMessages=new Map();this.recentHealthSources=new Map();this.onRefresh=()=>{};this.lastPublished=null;this.lastCombatUI=null;}
+ constructor(){this.records=new Map();this.snapshots=new Map();this.conditions=new Map();this.queue=Promise.resolve();this.latest=null;this.recentMessages=[];this.pendingOrigins=new Map();this.pendingSoak=new Map();this.recentTargetMessages=new Map();this.recentHealthSources=new Map();this.sentSoakKeys=new Set();this.onRefresh=()=>{};this.lastPublished=null;this.lastCombatUI=null;}
  enqueue(fn){const promise=this.queue.then(fn);this.queue=promise.catch(error=>{console.error('Combat Chronicle | operation failed',error)});return promise;}
  combatForActor(actor){if(!actor)return null;const matches=Array.from(game.combats||[]).filter(c=>combatStarted(c)&&selectTarget(c,actor));return matches.length===1?matches[0]:null;}
  snapshotKey(combat,actor){return `${combat.id}:${actor.uuid}`;}
@@ -15,6 +15,10 @@ export class ChronicleRecorder {
  let record=this.records.get(combat.id);if(record)return record;
  record=await findByCombat(combat.id)||await createRecord(combat,participantsOf(combat));
  this.records.set(combat.id,record);this.seed(combat);this.broadcast(record);return record;
+ }
+ requestProjection(){
+  if(game.user?.isGM||!setting('allowPlayers',true))return;
+  game.socket?.emit?.(`module.${MOD}`,{kind:'request'});
  }
  broadcast(record){if(!authority()||!record)return;
  const projection=playerProjection(record,{includeTemporary:setting('includeTemporary',false),groupSummons:setting('groupSummons',true)});
@@ -279,8 +283,9 @@ export class ChronicleRecorder {
    if(message.kind==='state'&&!game.user.isGM&&setting('allowPlayers',true)){this.latest=message.projection;this.onRefresh();}
    if(message.kind==='revoke'&&!game.user.isGM){this.latest=null;this.onRefresh();}
    if(message.kind==='request'&&authority()){
-    const active=game.combats?.active;const record=active&&this.records.get(active.id);
+    const active=currentEncounter();const record=active&&this.records.get(active.id);
     if(record)this.broadcast(record);
+   else if(active)this.enqueue(async()=>{const r=await this.ensure(active);if(r)this.broadcast(r)});
    }
   });
  }

@@ -143,7 +143,7 @@ export class ChronicleRecorder {
   this.enqueue(()=>this.add(combat,entries));
  }
  trackApplyContext(actor,options){
-  if(!authority()||!actor||!options?.message)return;
+  if(!actor||!options?.message)return;
   const combat=this.combatForActor(actor);if(!combat)return;
   const msg=typeof options.message==='string'?game.messages?.get(options.message):options.message;
   const speaker=msg?.speaker;if(!speaker?.actor)return;
@@ -151,7 +151,76 @@ export class ChronicleRecorder {
   if(matches.length!==1)return;
   this.pendingOrigins.set(actor.uuid,{at:Date.now(),sourceId:matches[0].id,sourceName:matches[0].name,
     itemName:itemFromMessage(msg,combat),messageId:msg.id||null});
+  if(!authority()&&!game.user?.isGM&&msg.id)game.socket?.emit?.(`module.${MOD}`,{
+    kind:'source-context',combatId:combat.id,actorUuid:actor.uuid,messageId:msg.id,
+    userId:game.user.id
+  });
  }
+ 
+ /** Report Armor Soak events from the client that actually applied the damage.
+  * The server-local GM sees actor flags but may never receive custom hooks.
+  * Never transmit full actor documents or private actor stats. */
+ observeSoak(actor,event){
+  if(!setting('enabled',true))return;
+  if(authority()){this.handleSoak(actor,event);return;}
+  if(game.user?.isGM)return;
+  const combat=this.combatForActor(actor),target=selectTarget(combat,actor);
+  if(!combat||!target||!['soak','refill','adjustment','capacity'].includes(event?.type))return;
+  const old=event?.evidence?.old,newValue=event?.evidence?.new;
+  if(!Number.isFinite(old)||!Number.isFinite(newValue))return;
+  game.socket?.emit?.(`module.${MOD}`,{
+   kind:'soak-observed',userId:game.user.id,combatId:combat.id,
+   actorUuid:actor.uuid,tokenId:target.tokenId||null,
+   event:{type:event.type,resource:'soak',amount:event.amount,delta:event.delta,
+    evidence:{integration:event.evidence?.integration,old,new:newValue,
+     reason:String(event.evidence?.reason||'').slice(0,60),
+     overflow:event.evidence?.overflow||0}}
+  });
+ }
+ /** Verify the referenced PF1e chat message exists and its speaker belongs to
+  * the same combat before treating a remote damage context as attribution. */
+ receiveDamageContext(message){
+  if(!authority()||!message?.actorUuid||!message?.messageId)return;
+  const combat=Array.from(game.combats||[]).find(c=>c.id===message.combatId&&combatStarted(c));
+  const target=Array.from(combat?.combatants||[]).find(c=>c.actor?.uuid===message.actorUuid);
+  if(!target)return;
+  const chat=game.messages?.get(message.messageId);
+  const speaker=chat?.speaker;
+  if(!speaker?.actor)return;
+  const candidates=Array.from(combat.combatants).filter(c=>c.actorId===speaker.actor
+   &&(!speaker.token||speaker.token===c.tokenId));
+  if(candidates.length!==1)return;
+  // The sender is not trusted as source; only GM-visible chat speaker is.
+  this.pendingOrigins.set(message.actorUuid,{at:Date.now(),sourceId:candidates[0].id,
+    sourceName:candidates[0].name,itemName:itemFromMessage(chat,combat),
+    messageId:chat.id||null});
+ }
+ /** Validate source-client native Soak report against a real combat target and
+  * Soak flag transition. GM remains sole writer of encounter records. */
+ receiveSoakObservation(message){
+  if(!authority()||!message||!['soak','refill','adjustment','capacity'].includes(message.event?.type))return;
+  const combat=Array.from(game.combats||[]).find(c=>c.id===message.combatId&&combatStarted(c));
+  if(!combat)return;
+  const target=Array.from(combat.combatants||[]).find(c=>c.actor?.uuid===message.actorUuid
+   &&(!message.tokenId||c.tokenId===message.tokenId));
+  if(!target)return;
+  const raw=message.event,evidence=raw.evidence||{};
+  const old=Number(evidence.old),current=Number(evidence.new),amount=Number(raw.amount);
+  if(!Number.isFinite(old)||!Number.isFinite(current)||!Number.isFinite(amount)||amount<=0||amount>1000000)return;
+  if(raw.type==='soak'&&(old-current!==amount||current>=old))return;
+  // A client must not be able to fabricate Soak damage by sending impossible
+  // value changes; verify it against the GM's current Soak flag/snapshot.
+  const flag=Number(target.actor?.flags?.['armor-soak-pool']?.current);
+  const snapshot=this.snapshots.get(this.snapshotKey(combat,target.actor));
+  if(Number.isFinite(flag)&&flag!==current&&Number(snapshot?.soak)!==current)return;
+  this.handleSoak(target.actor,{
+   type:raw.type,resource:'soak',amount,delta:raw.delta,
+   confidence:raw.type==='soak'?'unattributed':'confirmed',
+   evidence:{integration:'armor-soak-pool-relayed',old,new:current,
+    reason:String(evidence.reason||'').slice(0,60),overflow:Number(evidence.overflow)||0}
+  });
+ }
+
  handleSoak(actor,event){const combat=this.combatForActor(actor);if(!combat||!authority())return;
   const target=selectTarget(combat,actor),source=this.resolveSoakEvidence(actor,combat);if(!target)return;
   const old=event.evidence?.old,latest=event.evidence?.new;
@@ -275,11 +344,14 @@ export class ChronicleRecorder {
   Hooks.on('preUpdateActor',(actor,changed,options)=>{if(!authority())return;const c=this.combatForActor(actor);if(c){options.combatChroniclePreHealth=readHealth(actor)}});
   Hooks.on('updateActor',(actor,changed,options)=>{if(authority())this.handleHealth(actor,changed,options)});
   Hooks.on('pf1ApplyDamage',(actor,options)=>this.trackApplyContext(actor,options));
-  installSoakHooks((actor,event)=>this.handleSoak(actor,event));
+  installSoakHooks((actor,event)=>this.observeSoak(actor,event));
   Hooks.on('createChatMessage',m=>this.observeChat(m));
   Hooks.on('pf1ActorRollSave',(actor,message,save)=>this.recordSave(actor,message,save));
   Hooks.on('pf1ActorRollAttack',(actor,message)=>this.recordCriticalRoll(actor,message));
-  game.socket.on(`module.${MOD}`,message=>{
+  game.socket.on(`module.${MOD}`,(message,senderId)=>{
+   if(!message||typeof message!=='object')return;
+   if(message.kind==='source-context'&&authority())this.receiveDamageContext(message);
+   if(message.kind==='soak-observed'&&authority())this.receiveSoakObservation(message);
    if(message.kind==='state'&&!game.user.isGM&&setting('allowPlayers',true)){this.latest=message.projection;this.onRefresh();}
    if(message.kind==='revoke'&&!game.user.isGM){this.latest=null;this.onRefresh();}
    if(message.kind==='request'&&authority()){
